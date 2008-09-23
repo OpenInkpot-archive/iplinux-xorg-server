@@ -20,7 +20,9 @@ XCS-Cross-Build-Depends: x11proto-randr-dev (>= 1.2),
  x11proto-input-dev (>= 1.4.4),
  xtrans-dev (>= 1.2.1-1.oi1),
  libmd-dev (>= 0.3-0.oi2),
- libpixman-1-dev (>= 0.9.5)
+ libpixman-1-dev (>= 0.9.5),
+ libxkbfile-dev,
+ libxfont-dev
 Build-Depends: debhelper (>= 4.0.0),
  xorg-utils-macros (>= 1.1.6-0.oi3),
  quilt,
@@ -38,7 +40,9 @@ Build-Depends: debhelper (>= 4.0.0),
  x11proto-input-dev (>= 1.4.4),
  xtrans-dev (>= 1.2.1-1.oi1),
  libmd-dev (>= 0.3-0.oi2),
- libpixman-1-dev (>= 0.9.5)
+ libpixman-1-dev (>= 0.9.5),
+ libxkbfile-dev,
+ libxfont-dev,
 Standards-Version: 3.7.3
 
 Package: xserver-xfbdev
