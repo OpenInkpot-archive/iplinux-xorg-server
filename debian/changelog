@@ -1,3 +1,9 @@
+xorg-server (2:1.5.99.1~1.3.99.0+2733+ga39377c-0.oi2) unstable; urgency=low
+
+  * Fixed section of xserver-xfbdev package.
+
+ -- Mikhail Gusarov <dottedmag@dottedmag.net>  Wed, 24 Sep 2008 05:55:28 +0700
+
 xorg-server (2:1.5.99.1~1.3.99.0+2733+ga39377c-0.oi1) asimov; urgency=low
 
   * OpenInkpot build.

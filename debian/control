@@ -1,5 +1,5 @@
 Source: xorg-server
-Section: x11
+Section: gui
 Priority: optional
 Maintainer: Mikhail Gusarov <dottedmag@dottedmag.net>
 XCS-Cross-Host-Build-Depends: debhelper (>= 4.0.0),
