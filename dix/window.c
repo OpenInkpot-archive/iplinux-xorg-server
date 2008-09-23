@@ -486,15 +486,14 @@ InitRootWindow(WindowPtr pWin)
     rootCursor->refcnt++;
 
 
-    if (!blackRoot && !whiteRoot) {
+    if (party_like_its_1989) {
         MakeRootTile(pWin);
         backFlag |= CWBackPixmap;
-    }
-    else {
-        if (blackRoot)
-            pWin->background.pixel = pScreen->blackPixel;
-        else
+    } else {
+	if (whiteRoot)
             pWin->background.pixel = pScreen->whitePixel;
+        else
+            pWin->background.pixel = pScreen->blackPixel;
         backFlag |= CWBackPixel;
     } 
 
@@ -3027,6 +3026,11 @@ HandleSaveSet(ClientPtr client)
 	{
 	    if (pParent != pWin->parent)
 	    {
+#ifdef XFIXES
+		/* unmap first so that ReparentWindow doesn't remap */
+		if (!SaveSetShouldMap (client->saveSet[j]))
+		    UnmapWindow(pWin, FALSE);
+#endif
 		ReparentWindow(pWin, pParent,
 			       pWin->drawable.x - wBorderWidth (pWin) - pParent->drawable.x,
 			       pWin->drawable.y - wBorderWidth (pWin) - pParent->drawable.y,
@@ -3035,7 +3039,7 @@ HandleSaveSet(ClientPtr client)
 		    pWin->mapped = FALSE;
 	    }
 #ifdef XFIXES
-	    if (SaveSetRemap (client->saveSet[j]))
+	    if (SaveSetShouldMap (client->saveSet[j]))
 #endif
 		MapWindow(pWin, client);
 	}

@@ -34,6 +34,19 @@
 #include "pbproxy.h"
 #include <AppKit/NSPasteboard.h>
 
+/* This stores image data or text. */
+struct propdata {
+	unsigned char *data;
+	size_t length;
+};
+
+struct atom_list {
+    Atom primary, clipboard, text, utf8_string, string, targets, multiple,
+        cstring, image_png, image_jpeg, incr, atom, clipboard_manager,
+        compound_text, atom_pair;
+};
+
+
 @interface x_selection : NSObject
 {
 @private
@@ -53,6 +66,28 @@
 
     /* When true, we're expecting a SelectionNotify event. */
     unsigned int _pending_notify :1;
+ 
+    Atom request_atom;
+    
+    struct {
+        struct propdata propdata;
+        Window requestor;
+        Atom selection;
+    } pending;
+
+    /* 
+     * This is the number of times the user has requested a copy.
+     * Once the copy is completed, we --pending_copy, and if the 
+     * pending_copy is > 0 we do it again.
+     */
+    int pending_copy;
+    /* 
+     * This is used for the same purpose as pending_copy, but for the 
+     * CLIPBOARD.  It also prevents a race with INCR transfers.
+     */
+    int pending_clipboard; 
+    
+    struct atom_list atoms[1];
 }
 
 - (void) x_active:(Time)timestamp;
@@ -63,7 +98,12 @@
 - (void) clear_event:(XSelectionClearEvent *)e;
 - (void) request_event:(XSelectionRequestEvent *)e;
 - (void) notify_event:(XSelectionEvent *)e;
-
+- (void) property_event:(XPropertyEvent *)e;
+- (void) handle_selection:(Atom)selection type:(Atom)type propdata:(struct propdata *)pdata;
+- (void) claim_clipboard;
+- (void) set_clipboard_manager;
+- (void) own_clipboard;
+- (void) copy_completed:(Atom)selection;
 @end
 
 #endif /* X_SELECTION_H */

@@ -14,14 +14,11 @@
 Display *x_dpy;
 int x_apple_wm_event_base, x_apple_wm_error_base;
 
-Atom x_atom_wm_state, x_atom_wm_protocols, x_atom_wm_delete_window;
-Atom x_atom_clipboard, x_atom_text, x_atom_utf8_string;
-Atom x_atom_targets, x_atom_multiple, x_atom_cstring;
-
 static int x_grab_count;
 static Bool x_grab_synced;
 
-static BOOL _is_active = YES;		/* FIXME: should query server */
+static BOOL _is_active = YES;		/* FIXME: should query server */ 
+/*gstaplin: why? Is there a race?*/
 
 static x_selection *_selection_object;
 
@@ -57,6 +54,10 @@ static int x_io_error_handler (Display *dpy) {
     return 0;
 }
 
+static int x_error_handler (Display *dpy, XErrorEvent *errevent) {
+    return 0;
+}
+
 static void x_init (void) {
     x_dpy = XOpenDisplay (NULL);
     if (x_dpy == NULL) {
@@ -65,19 +66,14 @@ static void x_init (void) {
     }
     
     XSetIOErrorHandler (x_io_error_handler);
-    x_atom_clipboard = XInternAtom (x_dpy, "CLIPBOARD", False);
-    x_atom_text = XInternAtom (x_dpy, "TEXT", False);
-    x_atom_utf8_string = XInternAtom (x_dpy, "UTF8_STRING", False);
-    x_atom_targets = XInternAtom (x_dpy, "TARGETS", False);
-    x_atom_multiple = XInternAtom (x_dpy, "MULTIPLE", False);
-    x_atom_cstring = XInternAtom (x_dpy, "CSTRING", False);
-        
+    XSetErrorHandler (x_error_handler);
+    
     if (!XAppleWMQueryExtension (x_dpy, &x_apple_wm_event_base,
                                  &x_apple_wm_error_base)) {
         fprintf (stderr, "can't open AppleWM server extension\n");
         exit (1);
     }
-        
+    
     XAppleWMSelectInput (x_dpy, AppleWMActivationNotifyMask |
                          AppleWMPasteboardNotifyMask);
     
@@ -85,15 +81,21 @@ static void x_init (void) {
     
     x_input_register ();
     x_input_run ();
+
+    [_selection_object set_clipboard_manager];
+    [_selection_object claim_clipboard];
 }
 
 static void x_shutdown (void) {
+    /*gstaplin: signal_handler() calls this, and I don't think these are async-signal safe. */
+    /*TODO use a socketpair() to trigger a cleanup.  This is totally unsafe according to Jordan.  It's a segfault waiting to happen on a signal*/
+
     [_selection_object release];
     _selection_object = nil;
 
     XCloseDisplay (x_dpy);
     x_dpy = NULL;
-    exit(0);
+    exit(0); 
 }
 
 static void x_error_shutdown (void) {

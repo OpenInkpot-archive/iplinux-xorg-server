@@ -22,8 +22,6 @@ extern Time x_current_timestamp (void);
 
 extern Display *x_dpy;
 extern int x_apple_wm_event_base, x_apple_wm_error_base;
-extern Atom x_atom_clipboard, x_atom_text, x_atom_utf8_string;
-extern Atom x_atom_targets, x_atom_multiple, x_atom_cstring;
 
 /* from x-input.m */
 extern void x_input_register (void);

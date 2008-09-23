@@ -22,6 +22,7 @@ CFRunLoopSourceRef x_dpy_source;
 static Time last_activation_time;
 
 static void x_event_apple_wm_notify(XAppleWMNotifyEvent *e) {
+
     switch (e->type - x_apple_wm_event_base) {              
         case AppleWMActivationNotify:
             switch (e->kind) {
@@ -48,14 +49,15 @@ static void x_event_apple_wm_notify(XAppleWMNotifyEvent *e) {
 }
 
 void x_input_run (void) {
+
     while (XPending (x_dpy) != 0) {
-        XEvent e;
-        
+        XEvent e;       
+
         XNextEvent (x_dpy, &e);
         
         switch (e.type) {                
             case SelectionClear:
-                [x_selection_object () clear_event:&e.xselectionclear];
+	        [x_selection_object () clear_event:&e.xselectionclear];
                 break;
                 
             case SelectionRequest:
@@ -66,6 +68,10 @@ void x_input_run (void) {
                 [x_selection_object () notify_event:&e.xselection];
                 break;
                 
+	    case PropertyNotify:
+		[x_selection_object () property_event:&e.xproperty];
+		break;
+
             default:
                 if (e.type - x_apple_wm_event_base >= 0
                     && e.type - x_apple_wm_event_base < AppleWMNumberEvents) {
@@ -73,6 +79,8 @@ void x_input_run (void) {
                 }
                 break;
         }
+
+	XFlush(x_dpy);
     }
 }
 
@@ -111,3 +119,4 @@ void x_input_register(void) {
         exit (1);
     }
 }
+
