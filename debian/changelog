@@ -1,4 +1,12 @@
-xorg-server (2:1.5.99.1~1.3.99.0+2733+ga39377c-0.oi2) unstable; urgency=low
+xorg-server (2:1.5.99.1~1.3.99.0+2733+ga39377c-0.oi3) asimov; urgency=low
+
+  * Restored patch for server-1.4: stop mucking with APM and console
+    switching.
+  * /var/lib/xkb directory is added to package.
+
+ -- Mikhail Gusarov <dottedmag@dottedmag.net>  Thu, 25 Sep 2008 02:53:44 +0700
+
+xorg-server (2:1.5.99.1~1.3.99.0+2733+ga39377c-0.oi2) asimov; urgency=low
 
   * Fixed section of xserver-xfbdev package.
 
