@@ -337,24 +337,10 @@ LinuxEnable (void)
 	kdSwitchPending = FALSE;
 	ioctl (LinuxConsoleFd, VT_RELDISP, VT_ACKACQ);
     }
-    /*
-     * Open the APM driver
-     */
-    LinuxApmFd = open ("/dev/apm_bios", 2);
-    if (LinuxApmFd < 0 && errno == ENOENT)
-	LinuxApmFd = open ("/dev/misc/apm_bios", 2); 
-    if (LinuxApmFd >= 0)
-    {
-	LinuxApmRunning = TRUE;
-	fcntl (LinuxApmFd, F_SETFL, fcntl (LinuxApmFd, F_GETFL) | NOBLOCK);
-	RegisterBlockAndWakeupHandlers (LinuxApmBlock, LinuxApmWakeup, 0);
-	AddEnabledDevice (LinuxApmFd);
-    }
 	
     /*
      * now get the VT
      */
-    LinuxSetSwitchMode (VT_AUTO);
     if (ioctl(LinuxConsoleFd, VT_ACTIVATE, vtno) != 0)
     {
 	FatalError("LinuxInit: VT_ACTIVATE failed\n");
@@ -363,7 +349,6 @@ LinuxEnable (void)
     {
 	FatalError("LinuxInit: VT_WAITACTIVE failed\n");
     }
-    LinuxSetSwitchMode (VT_PROCESS);
     if (ioctl(LinuxConsoleFd, KDSETMODE, KD_GRAPHICS) < 0)
     {
 	FatalError("LinuxInit: KDSETMODE KD_GRAPHICS failed\n");
@@ -381,13 +366,6 @@ LinuxDisable (void)
 	ioctl (LinuxConsoleFd, VT_RELDISP, 1);
     }
     enabled = FALSE;
-    if (LinuxApmFd >= 0)
-    {
-	RemoveBlockAndWakeupHandlers (LinuxApmBlock, LinuxApmWakeup, 0);
-	RemoveEnabledDevice (LinuxApmFd);
-	close (LinuxApmFd);
-	LinuxApmFd = -1;
-    }
 }
 
 static void
