@@ -181,13 +181,13 @@ KdAddFd (int fd)
 {
     struct sigaction	act;
     sigset_t		set;
-    
+
     kdnFds++;
     fcntl (fd, F_SETOWN, getpid());
     KdNonBlockFd (fd);
     AddEnabledDevice (fd);
     memset (&act, '\0', sizeof act);
-    act.sa_handler = KdSigio;
+    act.sa_handler = SIG_IGN;
     sigemptyset (&act.sa_mask);
     sigaddset (&act.sa_mask, SIGIO);
     sigaddset (&act.sa_mask, SIGALRM);
