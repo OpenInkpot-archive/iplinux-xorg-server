@@ -493,6 +493,7 @@ void UseMsg(void)
     ErrorF("-c                     turns off key-click\n");
     ErrorF("c #                    key-click volume (0-100)\n");
     ErrorF("-cc int                default color visual class\n");
+    ErrorF("-nocursor              disable the cursor\n");
     ErrorF("-core                  generate core dump on fatal error\n");
     ErrorF("-dpi int               screen resolution in dots per inch\n");
 #ifdef DPMSExtension
@@ -675,6 +676,10 @@ ProcessCommandLine(int argc, char *argv[])
 	    setrlimit (RLIMIT_CORE, &core_limit);
 #endif
 	}
+        else if(strcmp(argv[i], "-nocursor") == 0)
+        {
+            useCursor = FALSE;
+        }
 	else if ( strcmp( argv[i], "-dpi") == 0)
 	{
 	    if(++i < argc)

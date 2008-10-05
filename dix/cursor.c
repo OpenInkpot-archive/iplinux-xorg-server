@@ -76,6 +76,8 @@ static GlyphSharePtr sharedGlyphs = (GlyphSharePtr)NULL;
 static CARD32	cursorSerial;
 #endif
 
+Bool useCursor = TRUE;
+
 static void
 FreeCursorBits(CursorBitsPtr bits)
 {
@@ -143,18 +145,21 @@ CheckForEmptyMask(CursorBitsPtr bits)
     unsigned char *msk = bits->mask;
     int n = BitmapBytePad(bits->width) * bits->height;
 
-    bits->emptyMask = FALSE;
-    while(n--) 
-	if(*(msk++) != 0) return;
-#ifdef ARGB_CURSOR
-    if (bits->argb)
+    if(useCursor)
     {
-	CARD32 *argb = bits->argb;
-	int n = bits->width * bits->height;
-	while (n--)
-	    if (*argb++ & 0xff000000) return;
-    }
+        bits->emptyMask = FALSE;
+        while(n--) 
+            if(*(msk++) != 0) return;
+#ifdef ARGB_CURSOR
+        if (bits->argb)
+        {
+            CARD32 *argb = bits->argb;
+            int n = bits->width * bits->height;
+            while (n--)
+                if (*argb++ & 0xff000000) return;
+        }
 #endif
+    }
     bits->emptyMask = TRUE;
 }
 

@@ -528,6 +528,8 @@ ScreenRestructured (ScreenPtr pScreen);
 
 extern int ffs(int i);
 
+extern Bool useCursor;
+
 /*
  *  callback manager stuff
  */
