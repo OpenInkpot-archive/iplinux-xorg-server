@@ -1104,6 +1104,15 @@ if test "x$SHA1_LIB" = "x" ; then
             [Use libmd SHA1 functions instead of OpenSSL libcrypto])])
 fi
 
+#
+# libsha1 is SHA1-only tiny library. Useful for embedded systems.
+#
+if test "x$SHA1_LIB" = "x"; then
+  AC_CHECK_LIB([sha1], [sha1_begin], [SHA1_LIB="-lsha1"
+               AC_DEFINE([HAVE_SHA1_IN_LIBSHA1], [1],
+               [Use libsha1 instead of OpenSSL libcrypto])])
+fi
+
 if test "x$SHA1_LIB" = "x" ; then
   PKG_CHECK_EXISTS([OPENSSL], [openssl], [HAVE_OPENSSL_PKC=yes],
                     [HAVE_OPENSSL_PKC=no])

@@ -157,6 +157,9 @@
 /* Define to use libmd SHA1 functions instead of OpenSSL libcrypto */
 #undef HAVE_SHA1_IN_LIBMD
 
+/* Define to use libsha1 functions instead of OpenSSL libcrypto */
+#undef HAVE_SHA1_IN_LIBSHA1
+
 /* Define to 1 if you have the `shmctl64' function. */
 #undef HAVE_SHMCTL64
 
