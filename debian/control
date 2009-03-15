@@ -20,8 +20,7 @@ XCS-Cross-Build-Depends: x11proto-randr-dev (>= 1.2),
  x11proto-input-dev (>= 1.4.4),
  x11proto-bigreqs-dev,
  x11proto-resource-dev,
- xtrans-dev (>= 1.2.1-1.oi1),
- libmd-dev (>= 0.3-0.oi2),
+ libsha1-dev,
  libpixman-1-dev (>= 0.9.5),
  libxkbfile-dev,
  libxfont-dev
@@ -43,7 +42,7 @@ Build-Depends: debhelper (>= 4.0.0),
  x11proto-bigreqs-dev,
  x11proto-resource-dev,
  xtrans-dev (>= 1.2.1-1.oi1),
- libmd-dev (>= 0.3-0.oi2),
+ libsha1-dev,
  libpixman-1-dev (>= 0.9.5),
  libxkbfile-dev,
  libxfont-dev,
@@ -51,7 +50,7 @@ Standards-Version: 3.7.3
 
 Package: xserver-xfbdev
 Architecture: alpha amd64 arm armeb armel hppa i386 ia64 lpia m32r m68k mips mipsel powerpc ppc64 sh3 sh3eb sh4 sh4eb sparc
-Depends: ${shlibs:Depends}, ${misc:Depends}, libmd0 (>= 0.3-0.oi3), xkbcomp, xkb-data
+Depends: ${shlibs:Depends}, ${misc:Depends}, libsha1, xkbcomp, xkb-data
 Recommends: xbase-clients, xfonts-base
 Description: Linux framebuffer device tiny X server
  xserver-xfbdev is a Linux framebuffer device tiny X server based on the
