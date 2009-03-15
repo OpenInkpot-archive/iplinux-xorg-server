@@ -63,9 +63,11 @@ extern int darwinMainScreenX, darwinMainScreenY;
 #define SCREEN_TO_GLOBAL_Y 0
 #endif
 
+#define MAKE_WINDOW_ID(x)		((xp_window_id)((size_t)(x)))
+
 #define DEFINE_ATOM_HELPER(func,atom_name)                      \
   static Atom func (void) {                                       \
-    static unsigned int generation;                             \
+    static unsigned int generation = 0;                             \
     static Atom atom;                                           \
     if (generation != serverGeneration) {                       \
       generation = serverGeneration;                          \
@@ -81,13 +83,6 @@ DEFINE_ATOM_HELPER (xa_apple_no_order_in, "_APPLE_NO_ORDER_IN")
 static Bool no_configure_window;
 static Bool windows_hidden;
 // TODO - abstract xp functions
-
-static const int normal_window_levels[AppleWMNumWindowLevels+1] = {
-  0, 3, 4, 5, LONG_MIN + 30, LONG_MIN + 29,
-};
-static const int rooted_window_levels[AppleWMNumWindowLevels+1] = {
-  202, 203, 204, 205, 201, 200
-};
 
 static inline int
 configure_window (xp_window_id id, unsigned int mask,
@@ -141,7 +136,7 @@ void RootlessNativeWindowMoved (WindowPtr pWin) {
     
     winRec = WINREC(pWin);
     
-    if (xp_get_window_bounds ((xp_window_id)winRec->wid, &bounds) != Success) return;
+    if (xp_get_window_bounds (MAKE_WINDOW_ID(winRec->wid), &bounds) != Success) return;
     
     sx = dixScreenOrigins[pWin->drawable.pScreen->myNum].x + darwinMainScreenX;
     sy = dixScreenOrigins[pWin->drawable.pScreen->myNum].y + darwinMainScreenY;
@@ -271,6 +266,12 @@ static Bool
 RootlessGetShape(WindowPtr pWin, RegionPtr pShape)
 {
     ScreenPtr pScreen = pWin->drawable.pScreen;
+
+    /* 
+     * Avoid a warning.  
+     * REGION_NULL and the other macros don't actually seem to use pScreen.
+     */
+    (void)pScreen; 
 
     if (wBoundingShape(pWin) == NULL)
         return FALSE;
@@ -627,7 +628,7 @@ RootlessReorderWindow(WindowPtr pWin)
 {
     RootlessWindowRec *winRec = WINREC(pWin);
 
-    if (winRec != NULL && !winRec->is_reorder_pending) {
+    if (pWin->realized && winRec != NULL && !winRec->is_reorder_pending && !windows_hidden) {
         WindowPtr newPrevW;
         RootlessWindowRec *newPrev;
         RootlessFrameID newPrevID;
@@ -1500,7 +1501,7 @@ RootlessFlushWindowColormap (WindowPtr pWin)
   wc.colormap = RootlessColormapCallback;
   wc.colormap_data = pWin->drawable.pScreen;
 
-  configure_window ((xp_window_id)winRec->wid, XP_COLORMAP, &wc);
+  configure_window (MAKE_WINDOW_ID(winRec->wid), XP_COLORMAP, &wc);
 }
 
 /*
@@ -1566,7 +1567,10 @@ RootlessOrderAllWindows (void)
 {
     int i;
     WindowPtr pWin;
-    
+
+    if (windows_hidden)
+        return;    
+
     RL_DEBUG_MSG("RootlessOrderAllWindows() ");
     for (i = 0; i < screenInfo.numScreens; i++) {
       if (screenInfo.screens[i] == NULL) continue;
@@ -1580,4 +1584,110 @@ RootlessOrderAllWindows (void)
       }
     }
     RL_DEBUG_MSG("RootlessOrderAllWindows() done");
+}
+
+void
+RootlessEnableRoot (ScreenPtr pScreen)
+{
+    WindowPtr pRoot;
+    pRoot = WindowTable[pScreen->myNum];
+    
+    RootlessEnsureFrame (pRoot);
+    (*pScreen->ClearToBackground) (pRoot, 0, 0, 0, 0, TRUE);
+    RootlessReorderWindow (pRoot);
+}
+
+void
+RootlessDisableRoot (ScreenPtr pScreen)
+{
+    WindowPtr pRoot;
+    RootlessWindowRec *winRec;
+
+    pRoot = WindowTable[pScreen->myNum];
+    winRec = WINREC (pRoot);
+
+    if (NULL == winRec)
+	return;
+           
+    RootlessDestroyFrame (pRoot, winRec);
+    /* 
+     * gstaplin: I fixed the usage of this DeleteProperty so that it would compile.
+     * QUESTION: Where is this xa_native_window_id set?
+     */
+    DeleteProperty (serverClient, pRoot, xa_native_window_id ());
+}
+
+void
+RootlessHideAllWindows (void)
+{
+    int i;
+    ScreenPtr pScreen;
+    WindowPtr pWin;
+    RootlessWindowRec *winRec;
+    xp_window_changes wc;
+    
+    if (windows_hidden)
+        return;
+    
+    windows_hidden = TRUE;
+    
+    for (i = 0; i < screenInfo.numScreens; i++)
+    {
+        pScreen = screenInfo.screens[i];
+        pWin = WindowTable[i];
+        if (pScreen == NULL || pWin == NULL)
+            continue;
+        
+        for (pWin = pWin->firstChild; pWin != NULL; pWin = pWin->nextSib)
+        {
+            if (!pWin->realized)
+                continue;
+            
+            RootlessStopDrawing (pWin, FALSE);
+            
+            winRec = WINREC (pWin);
+            if (winRec != NULL)
+            {
+                wc.stack_mode = XP_UNMAPPED;
+                wc.sibling = 0;
+                configure_window (MAKE_WINDOW_ID(winRec->wid), XP_STACKING, &wc);
+            }
+        }
+    }
+}
+
+void
+RootlessShowAllWindows (void)
+{
+    int i;
+    ScreenPtr pScreen;
+    WindowPtr pWin;
+    RootlessWindowRec *winRec;
+    
+    if (!windows_hidden)
+        return;
+    
+    windows_hidden = FALSE;
+    
+    for (i = 0; i < screenInfo.numScreens; i++)
+    {
+        pScreen = screenInfo.screens[i];
+        pWin = WindowTable[i];
+        if (pScreen == NULL || pWin == NULL)
+            continue;
+        
+        for (pWin = pWin->firstChild; pWin != NULL; pWin = pWin->nextSib)
+        {
+            if (!pWin->realized)
+                continue;
+            
+            winRec = RootlessEnsureFrame (pWin);
+            if (winRec == NULL)
+                continue;
+            
+            RootlessReorderWindow (pWin);
+        }
+        
+        RootlessScreenExpose (pScreen);
+    }
 }

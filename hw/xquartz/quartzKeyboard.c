@@ -37,7 +37,6 @@
 #include <dix-config.h>
 #endif
 
-//#define XQUARTZ_USE_XKB 
 #define HACK_MISSING 1
 #define HACK_KEYPAD 1
 
@@ -45,12 +44,15 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <AvailabilityMacros.h>
 
 #include "quartzCommon.h"
 #include "darwin.h"
 
 #include "quartzKeyboard.h"
 #include "quartzAudio.h"
+
+#include "threadSafety.h"
 
 #ifdef NDEBUG
 #undef NDEBUG
@@ -59,13 +61,12 @@
 #else
 #include <assert.h>
 #endif
+#include <pthread.h>
 
 #include "xkbsrv.h"
 #include "exevents.h"
 #include "X11/keysym.h"
 #include "keysym2ucs.h"
-
-void QuartzXkbUpdate(DeviceIntPtr pDev);
 
 enum {
     MOD_COMMAND = 256,
@@ -75,143 +76,6 @@ enum {
 };
 
 #define UKEYSYM(u) ((u) | 0x01000000)
-
-#define AltMask         Mod1Mask
-#define MetaMask        Mod2Mask
-#define FunctionMask    Mod3Mask
-
-#define UK(a)           NoSymbol    // unknown symbol
-
-static KeySym const next_to_x[256] = {
-	NoSymbol,	NoSymbol,	NoSymbol,	XK_KP_Enter,
-	NoSymbol,	NoSymbol,	NoSymbol,	NoSymbol,
-	XK_BackSpace,	XK_Tab,		XK_Linefeed,	NoSymbol,
-	NoSymbol,	XK_Return,	NoSymbol,	NoSymbol,
-	NoSymbol,	NoSymbol,	NoSymbol,	NoSymbol,
-	NoSymbol,	NoSymbol,	NoSymbol,	NoSymbol,
-	NoSymbol,	NoSymbol,	NoSymbol,	XK_Escape,
-	NoSymbol,	NoSymbol,	NoSymbol,	NoSymbol,
-	XK_space,	XK_exclam,	XK_quotedbl,	XK_numbersign,
-	XK_dollar,	XK_percent,	XK_ampersand,	XK_apostrophe,
-	XK_parenleft,	XK_parenright,	XK_asterisk,	XK_plus,
-	XK_comma,	XK_minus,	XK_period,	XK_slash,
-	XK_0,		XK_1,		XK_2,		XK_3,
-	XK_4,		XK_5,		XK_6,		XK_7,
-	XK_8,		XK_9,		XK_colon,	XK_semicolon,
-	XK_less,	XK_equal,	XK_greater,	XK_question,
-	XK_at,		XK_A,		XK_B,		XK_C,
-	XK_D,		XK_E,		XK_F,		XK_G,
-	XK_H,		XK_I,		XK_J,		XK_K,
-	XK_L,		XK_M,		XK_N,		XK_O,
-	XK_P,		XK_Q,		XK_R,		XK_S,
-	XK_T,		XK_U,		XK_V,		XK_W,
-	XK_X,		XK_Y,		XK_Z,		XK_bracketleft,
-	XK_backslash,	XK_bracketright,XK_asciicircum,	XK_underscore,
-	XK_grave,	XK_a,		XK_b,		XK_c,
-	XK_d,		XK_e,		XK_f,		XK_g,
-	XK_h,		XK_i,		XK_j,		XK_k,
-	XK_l,		XK_m,		XK_n,		XK_o,
-	XK_p,		XK_q,		XK_r,		XK_s,
-	XK_t,		XK_u,		XK_v,		XK_w,
-	XK_x,		XK_y,		XK_z,		XK_braceleft,
-	XK_bar,		XK_braceright,	XK_asciitilde,	XK_BackSpace,
-// 128
-	NoSymbol,	XK_Agrave,	XK_Aacute,	XK_Acircumflex,
-	XK_Atilde,	XK_Adiaeresis,	XK_Aring,	XK_Ccedilla,
-	XK_Egrave,	XK_Eacute,	XK_Ecircumflex,	XK_Ediaeresis,
-	XK_Igrave,	XK_Iacute,	XK_Icircumflex,	XK_Idiaeresis,
-// 144
-	XK_ETH,		XK_Ntilde,	XK_Ograve,	XK_Oacute,
-	XK_Ocircumflex,	XK_Otilde,	XK_Odiaeresis,	XK_Ugrave,
-	XK_Uacute,	XK_Ucircumflex,	XK_Udiaeresis,	XK_Yacute,
-	XK_THORN,	XK_mu,		XK_multiply,	XK_division,
-// 160
-	XK_copyright,	XK_exclamdown,	XK_cent,	XK_sterling,
-	UK(fraction),	XK_yen,		UK(fhook),	XK_section,
-	XK_currency,	XK_rightsinglequotemark,
-					XK_leftdoublequotemark,
-							XK_guillemotleft,
-	XK_leftanglebracket,
-			XK_rightanglebracket,
-					UK(filigature),	UK(flligature),
-// 176
-	XK_registered,	XK_endash,	XK_dagger,	XK_doubledagger,
-	XK_periodcentered,XK_brokenbar,	XK_paragraph,	UK(bullet),
-	XK_singlelowquotemark,
-			XK_doublelowquotemark,
-					XK_rightdoublequotemark,
-							XK_guillemotright,
-	XK_ellipsis,	UK(permille),	XK_notsign,	XK_questiondown,
-// 192
-	XK_onesuperior,	XK_dead_grave,	XK_dead_acute,	XK_dead_circumflex,
-	XK_dead_tilde,	XK_dead_macron,	XK_dead_breve,	XK_dead_abovedot,
-	XK_dead_diaeresis,
-			XK_twosuperior,	XK_dead_abovering,
-							XK_dead_cedilla,
-	XK_threesuperior,
-			XK_dead_doubleacute,
-					XK_dead_ogonek,	XK_dead_caron,
-// 208
-	XK_emdash,	XK_plusminus,	XK_onequarter,	XK_onehalf,
-	XK_threequarters,
-			XK_agrave,	XK_aacute,	XK_acircumflex,
-	XK_atilde,	XK_adiaeresis,	XK_aring,	XK_ccedilla,
-	XK_egrave,	XK_eacute,	XK_ecircumflex,	XK_ediaeresis,
-// 224
-	XK_igrave,	XK_AE,		XK_iacute,	XK_ordfeminine,
-	XK_icircumflex,	XK_idiaeresis,	XK_eth,		XK_ntilde,
-	XK_Lstroke,	XK_Ooblique,	XK_OE,		XK_masculine,
-	XK_ograve,	XK_oacute,	XK_ocircumflex, XK_otilde,
-// 240
-	XK_odiaeresis,	XK_ae,		XK_ugrave,	XK_uacute,
-	XK_ucircumflex,	XK_idotless,	XK_udiaeresis,	XK_ygrave,
-	XK_lstroke,	XK_ooblique,	XK_oe,		XK_ssharp,
-	XK_thorn,	XK_ydiaeresis,	NoSymbol,	NoSymbol,
-  };
-
-#define MIN_SYMBOL      0xAC
-static KeySym const symbol_to_x[] = {
-    XK_Left,        XK_Up,          XK_Right,      XK_Down
-  };
-static int const NUM_SYMBOL = sizeof(symbol_to_x) / sizeof(symbol_to_x[0]);
-
-#define MIN_FUNCKEY     0x20
-static KeySym const funckey_to_x[] = {
-    XK_F1,          XK_F2,          XK_F3,          XK_F4,
-    XK_F5,          XK_F6,          XK_F7,          XK_F8,
-    XK_F9,          XK_F10,         XK_F11,         XK_F12,
-    XK_Insert,      XK_Delete,      XK_Home,        XK_End,
-    XK_Page_Up,     XK_Page_Down,   XK_F13,         XK_F14,
-    XK_F15
-  };
-static int const NUM_FUNCKEY = sizeof(funckey_to_x) / sizeof(funckey_to_x[0]);
-
-typedef struct {
-    KeySym      normalSym;
-    KeySym      keypadSym;
-} darwinKeyPad_t;
-
-static darwinKeyPad_t const normal_to_keypad[] = {
-    { XK_0,         XK_KP_0 },
-    { XK_1,         XK_KP_1 },
-    { XK_2,         XK_KP_2 },
-    { XK_3,         XK_KP_3 },
-    { XK_4,         XK_KP_4 },
-    { XK_5,         XK_KP_5 },
-    { XK_6,         XK_KP_6 },
-    { XK_7,         XK_KP_7 },
-    { XK_8,         XK_KP_8 },
-    { XK_9,         XK_KP_9 },
-    { XK_equal,     XK_KP_Equal },
-    { XK_asterisk,  XK_KP_Multiply },
-    { XK_plus,      XK_KP_Add },
-    { XK_comma,     XK_KP_Separator },
-    { XK_minus,     XK_KP_Subtract },
-    { XK_period,    XK_KP_Decimal },
-    { XK_slash,     XK_KP_Divide }
-};
-
-static int const NUM_KEYPAD = sizeof(normal_to_keypad) / sizeof(normal_to_keypad[0]);
 
 /* Table of keycode->keysym mappings we use to fallback on for important
    keys that are often not in the Unicode mapping. */
@@ -281,7 +145,9 @@ const static struct {
     KeySym normal, dead;
 } dead_keys[] = {
     {XK_grave, XK_dead_grave},
+    {XK_apostrophe, XK_dead_acute},             /* US:"=" on a Czech keyboard */
     {XK_acute, XK_dead_acute},
+    {UKEYSYM (0x384), XK_dead_acute},           /* US:";" on a Greek keyboard */
     {XK_asciicircum, XK_dead_circumflex},
     {UKEYSYM (0x2c6), XK_dead_circumflex},	/* MODIFIER LETTER CIRCUMFLEX ACCENT */
     {XK_asciitilde, XK_dead_tilde},
@@ -304,10 +170,10 @@ const static struct {
 };
 
 darwinKeyboardInfo keyInfo;
+pthread_mutex_t keyInfo_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-static void DarwinChangeKeyboardControl( DeviceIntPtr device, KeybdCtrl *ctrl )
-{
-	// FIXME: to be implemented
+static void DarwinChangeKeyboardControl(DeviceIntPtr device, KeybdCtrl *ctrl) {
+    // FIXME: to be implemented
     // keyclick, bell volume / pitch, autorepead, LED's
 }
 
@@ -411,28 +277,42 @@ static void DarwinBuildModifierMaps(darwinKeyboardInfo *info) {
  *  it to an equivalent X keyboard map and modifier map.
  */
 static void DarwinLoadKeyboardMapping(KeySymsRec *keySyms) {
-    memset(keyInfo.keyMap, 0, sizeof(keyInfo.keyMap));
-
-    if (!QuartzReadSystemKeymap(&keyInfo)) {
-        FatalError("Could not build a valid keymap.");
-    }
-
+    pthread_mutex_lock(&keyInfo_mutex);
+    
     DarwinBuildModifierMaps(&keyInfo);
 
     keySyms->map        = keyInfo.keyMap;
     keySyms->mapWidth   = GLYPHS_PER_KEY;
     keySyms->minKeyCode = MIN_KEYCODE;
     keySyms->maxKeyCode = MAX_KEYCODE;
+
+    pthread_mutex_unlock(&keyInfo_mutex);
 }
 
-void QuartzXkbUpdate(DeviceIntPtr pDev) {
-#ifdef XQUARTZ_USE_XKB
-	SendDeviceMappingNotify(serverClient, MappingKeyboard, 
-		pDev->key->curKeySyms.minKeyCode, 
-		pDev->key->curKeySyms.maxKeyCode - pDev->key->curKeySyms.minKeyCode, pDev);
-	SendDeviceMappingNotify(serverClient, MappingModifier, 0, 0, pDev);
-	SwitchCoreKeyboard(pDev);   
-#endif
+/*
+ * DarwinKeyboardSetDeviceKeyMap
+ * Load a keymap into the keyboard device
+ */
+static void DarwinKeyboardSetDeviceKeyMap(KeySymsRec *keySyms) {
+    DeviceIntPtr pDev;
+
+    /* From ProcSetModifierMapping */
+    SendMappingNotify(darwinKeyboard, MappingModifier, 0, 0, serverClient);
+    for (pDev = inputInfo.devices; pDev; pDev = pDev->next)
+        if (pDev->key && pDev->coreEvents)
+            SendDeviceMappingNotify(serverClient, MappingModifier, 0, 0, pDev);
+    
+    /* From ProcChangeKeyboardMapping */
+    for (pDev = inputInfo.devices; pDev; pDev = pDev->next)
+        if ((pDev->coreEvents || pDev == inputInfo.keyboard) && pDev->key)
+            assert(SetKeySymsMap(&pDev->key->curKeySyms, keySyms));
+
+    SendMappingNotify(darwinKeyboard, MappingKeyboard, keySyms->minKeyCode,
+                      keySyms->maxKeyCode - keySyms->minKeyCode + 1, serverClient);
+    for (pDev = inputInfo.devices; pDev; pDev = pDev->next)
+        if (pDev->key && pDev->coreEvents)
+            SendDeviceMappingNotify(serverClient, MappingKeyboard, keySyms->minKeyCode,
+                                    keySyms->maxKeyCode - keySyms->minKeyCode + 1, pDev);    
 }
 
 /*
@@ -442,67 +322,58 @@ void QuartzXkbUpdate(DeviceIntPtr pDev) {
  *      device structure.
  */
 void DarwinKeyboardInit(DeviceIntPtr pDev) {
-    KeySymsRec          keySyms;
+    KeySymsRec keySyms;
+    XkbComponentNamesRec names;
+    CFIndex value;
+    BOOL ok;
 
     // Open a shared connection to the HID System.
     // Note that the Event Status Driver is really just a wrapper
     // for a kIOHIDParamConnectType connection.
-    assert( darwinParamConnect = NXOpenEventStatus() );
+    assert(darwinParamConnect = NXOpenEventStatus());
 
     DarwinLoadKeyboardMapping(&keySyms);
-    /* Initialize the seed, so we don't reload the keymap unnecessarily
-       (and possibly overwrite xinitrc changes) */
-    QuartzSystemKeymapSeed();
 
-#ifdef XQUARTZ_USE_XKB
-	XkbComponentNamesRec names;
-	bzero(&names, sizeof(names));
+    bzero(&names, sizeof(names));
+
     /* We need to really have rules... or something... */
-    XkbSetRulesDflts("base", "pc105", "us", NULL, NULL);
+    //XkbSetRulesDflts("base", "pc105", "us", NULL, NULL);
+    
+    pthread_mutex_lock(&keyInfo_mutex);
     assert(XkbInitKeyboardDeviceStruct(pDev, &names, &keySyms, keyInfo.modMap,
-                                        QuartzBell, DarwinChangeKeyboardControl));
-	assert(SetKeySymsMap(&pDev->key->curKeySyms, &keySyms));
-	assert(keyInfo.modMap!=NULL);
-	assert(pDev->key->modifierMap!=NULL);
-	memcpy(pDev->key->modifierMap, keyInfo.modMap, sizeof(keyInfo.modMap));
-	
-	QuartzXkbUpdate(pDev);
-#else
-    assert( InitKeyboardDeviceStruct( (DevicePtr)pDev, &keySyms,
-                                      keyInfo.modMap, QuartzBell,
-                                      DarwinChangeKeyboardControl ));
-    SwitchCoreKeyboard(pDev);
-#endif
-}
+                                       QuartzBell, DarwinChangeKeyboardControl));
+    pthread_mutex_unlock(&keyInfo_mutex);
 
+    /* Get our key repeat settings from GlobalPreferences */
+    (void)CFPreferencesAppSynchronize(CFSTR(".GlobalPreferences"));
+    value = CFPreferencesGetAppIntegerValue(CFSTR("InitialKeyRepeat"), CFSTR(".GlobalPreferences"), &ok);
+    if(!ok)
+        value = 35;
+
+    if(value == 300000) { // off
+        XkbSetRepeatKeys(pDev, -1, AutoRepeatModeOff);
+    } else {
+        pDev->key->xkbInfo->desc->ctrls->repeat_delay = value * 15;
+
+        value = CFPreferencesGetAppIntegerValue(CFSTR("KeyRepeat"), CFSTR(".GlobalPreferences"), &ok);
+        if(!ok)
+            value = 6;
+        pDev->key->xkbInfo->desc->ctrls->repeat_interval = value * 15;
+
+        XkbSetRepeatKeys(pDev, -1, AutoRepeatModeOn);
+    }
+
+    DarwinKeyboardSetDeviceKeyMap(&keySyms);
+}
 
 void DarwinKeyboardReloadHandler(int screenNum, xEventPtr xe, DeviceIntPtr pDev, int nevents) {
-    if (pDev == NULL) pDev = darwinKeyboard;
-    
-    DEBUG_LOG("DarwinKeyboardReloadHandler(%p)\n", pDev);
-
-#ifdef XQUARTZ_USE_XKB
-    QuartzXkbUpdate(pDev);
-#else
     KeySymsRec keySyms;
+
+    DEBUG_LOG("DarwinKeyboardReloadHandler\n");
+
     DarwinLoadKeyboardMapping(&keySyms);
-
-    if (pDev->key) {
-        if (pDev->key->curKeySyms.map) xfree(pDev->key->curKeySyms.map);
-        if (pDev->key->modifierKeyMap) xfree(pDev->key->modifierKeyMap);
-        xfree(pDev->key);
-    }
-    
-    if (!InitKeyClassDeviceStruct(pDev, &keySyms, keyInfo.modMap)) {
-        DEBUG_LOG("InitKeyClassDeviceStruct failed\n");
-        return;
-    }
-
-    SendMappingNotify(MappingKeyboard, MIN_KEYCODE, NUM_KEYCODES, 0);
-    SendMappingNotify(MappingModifier, 0, 0, 0);
-#endif
+    DarwinKeyboardSetDeviceKeyMap(&keySyms);
 }
-
 
 //-----------------------------------------------------------------------------
 // Modifier translation functions
@@ -521,7 +392,12 @@ void DarwinKeyboardReloadHandler(int screenNum, xEventPtr xe, DeviceIntPtr pDev,
  *      Returns 0 if key+side is not a known modifier.
  */
 int DarwinModifierNXKeyToNXKeycode(int key, int side) {
-    return keyInfo.modifierKeycodes[key][side];
+    int retval;
+    pthread_mutex_lock(&keyInfo_mutex);
+    retval = keyInfo.modifierKeycodes[key][side];
+    pthread_mutex_unlock(&keyInfo_mutex);
+
+    return retval;
 }
 
 /*
@@ -532,6 +408,7 @@ int DarwinModifierNXKeyToNXKeycode(int key, int side) {
 int DarwinModifierNXKeycodeToNXKey(unsigned char keycode, int *outSide) {
     int key, side;
 
+    pthread_mutex_lock(&keyInfo_mutex);
     keycode += MIN_KEYCODE;
     // search modifierKeycodes for this keycode+side
     for (key = 0; key < NX_NUMMODIFIERS; key++) {
@@ -539,8 +416,13 @@ int DarwinModifierNXKeycodeToNXKey(unsigned char keycode, int *outSide) {
             if (keyInfo.modifierKeycodes[key][side] == keycode) break;
         }
     }
-    if (key == NX_NUMMODIFIERS) return -1;
+    if (key == NX_NUMMODIFIERS) {
+        pthread_mutex_unlock(&keyInfo_mutex);
+        return -1;
+    }
     if (outSide) *outSide = side;
+
+    pthread_mutex_unlock(&keyInfo_mutex);
     return key;
 }
 
@@ -666,39 +548,6 @@ Bool LegalModifier(unsigned int key, DeviceIntPtr pDev)
     return 1;
 }
 
-/* TODO: Not thread safe */
-unsigned int QuartzSystemKeymapSeed(void) {
-    static unsigned int seed = 0;
-//#if defined(__x86_64__) || defined(__ppc64__)
-#if 1
-    static TISInputSourceRef last_key_layout = NULL;
-    TISInputSourceRef key_layout;
-
-    key_layout = TISCopyCurrentKeyboardLayoutInputSource();
-
-    if(last_key_layout) {
-        if (CFEqual(key_layout, last_key_layout)) {
-            CFRelease(key_layout);
-        } else {
-            seed++;
-            CFRelease(last_key_layout);
-            last_key_layout = key_layout;
-        }
-    } else {
-        last_key_layout = key_layout;
-    }
-#else
-    static KeyboardLayoutRef last_key_layout;
-    KeyboardLayoutRef key_layout;
-
-    KLGetCurrentKeyboardLayout (&key_layout);
-    if (key_layout != last_key_layout)
-        seed++;
-    last_key_layout = key_layout;
-#endif
-    return seed;
-}
-
 static inline UniChar macroman2ucs(unsigned char c) {
     /* Precalculated table mapping MacRoman-128 to Unicode. Generated
        by creating single element CFStringRefs then extracting the
@@ -737,53 +586,66 @@ static KeySym make_dead_key(KeySym in) {
 }
 
 Bool QuartzReadSystemKeymap(darwinKeyboardInfo *info) {
-#if !defined(__x86_64__) && !defined(__ppc64__)
+#if !defined(__LP64__) || MAC_OS_X_VERSION_MIN_REQUIRED < 1050
     KeyboardLayoutRef key_layout;
+    int is_uchr = 1;
 #endif
     const void *chr_data = NULL;
     int num_keycodes = NUM_KEYCODES;
-    UInt32 keyboard_type = 0;
-    int is_uchr = 1, i, j;
+    UInt32 keyboard_type = LMGetKbdType();
+    int i, j;
     OSStatus err;
     KeySym *k;
     CFDataRef currentKeyLayoutDataRef = NULL;
 
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
     TISInputSourceRef currentKeyLayoutRef = TISCopyCurrentKeyboardLayoutInputSource();
-    keyboard_type = LMGetKbdType();
 
     if (currentKeyLayoutRef) {
       currentKeyLayoutDataRef = (CFDataRef )TISGetInputSourceProperty(currentKeyLayoutRef, kTISPropertyUnicodeKeyLayoutData);
       if (currentKeyLayoutDataRef)
           chr_data = CFDataGetBytePtr(currentKeyLayoutDataRef);
     }
+#endif
 
-#if !defined(__x86_64__) && !defined(__ppc64__)
+#if !defined(__LP64__) || MAC_OS_X_VERSION_MIN_REQUIRED < 1050
     if (chr_data == NULL) {
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
         ErrorF("X11.app: Error detected in determining keyboard layout.  If you are using an Apple-provided keyboard layout, please report this error at http://xquartz.macosforge.org and http://bugreport.apple.com\n");
         ErrorF("X11.app: Debug Info: keyboard_type=%u, currentKeyLayoutRef=%p, currentKeyLayoutDataRef=%p, chr_data=%p\n",
                (unsigned)keyboard_type, currentKeyLayoutRef, currentKeyLayoutDataRef, chr_data);
+#endif
 
         KLGetCurrentKeyboardLayout (&key_layout);
         KLGetKeyboardLayoutProperty (key_layout, kKLuchrData, &chr_data);
 
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
         if(chr_data != NULL) {
             ErrorF("X11.app: Fallback succeeded, but this is still a bug.  Please report the above information.\n");
         }
+#endif
     }
 
     if (chr_data == NULL) {
-        ErrorF("X11.app: Debug Info: kKLuchrData fallback failed, trying kKLKCHRData.\n");
+        ErrorF("X11.app: Debug Info: kKLuchrData failed, trying kKLKCHRData.\n");
         ErrorF("If you are using a 3rd party keyboard layout, please see http://xquartz.macosforge.org/trac/ticket/154\n");
         KLGetKeyboardLayoutProperty (key_layout, kKLKCHRData, &chr_data);
         is_uchr = 0;
         num_keycodes = 128;
         
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
         if(chr_data != NULL) {
             ErrorF("X11.app: Fallback succeeded, but this is still a bug.  Please report the above information.\n");
         }
+#endif
     }
 #endif
 
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
+    if(currentKeyLayoutRef)
+        CFRelease(currentKeyLayoutRef);
+#endif
+    
     if (chr_data == NULL) {
       ErrorF ( "Couldn't get uchr or kchr resource\n");
       return FALSE;
@@ -793,6 +655,9 @@ Bool QuartzReadSystemKeymap(darwinKeyboardInfo *info) {
        key produces in the four shift states. Then convert that to
        an X11 keysym (which may just the bit that says "this is
        Unicode" if it can't find the real symbol.) */
+       
+    /* KeyTranslate is not available on 64-bit platforms; UCKeyTranslate
+       must be used instead. */
 
     for (i = 0; i < num_keycodes; i++) {
         static const int mods[4] = {0, MOD_SHIFT, MOD_OPTION,
@@ -801,7 +666,9 @@ Bool QuartzReadSystemKeymap(darwinKeyboardInfo *info) {
         k = info->keyMap + i * GLYPHS_PER_KEY;
 
         for (j = 0; j < 4; j++) {
+#if !defined(__LP64__) || MAC_OS_X_VERSION_MIN_REQUIRED < 1050
             if (is_uchr)  {
+#endif
                 UniChar s[8];
                 UniCharCount len;
                 UInt32 dead_key_state = 0, extra_dead = 0;
@@ -825,6 +692,7 @@ Bool QuartzReadSystemKeymap(darwinKeyboardInfo *info) {
                     k[j] = ucs2keysym (s[0]);
                     if (dead_key_state != 0) k[j] = make_dead_key (k[j]);
                 }
+#if !defined(__LP64__) || MAC_OS_X_VERSION_MIN_REQUIRED < 1050
             } else { // kchr
 	      UInt32 c, state = 0, state2 = 0;
                 UInt16 code;
@@ -848,6 +716,7 @@ Bool QuartzReadSystemKeymap(darwinKeyboardInfo *info) {
                     if (state != 0) k[j] = make_dead_key (k[j]);
                 }
             }
+#endif
         }
 	
         if (k[3] == k[2]) k[3] = NoSymbol;
@@ -880,7 +749,6 @@ Bool QuartzReadSystemKeymap(darwinKeyboardInfo *info) {
                 k[0] = known_numeric_keys[i].keypad;
         }
     }
-    if(currentKeyLayoutRef)	CFRelease(currentKeyLayoutRef);
-    
+
     return TRUE;
 }

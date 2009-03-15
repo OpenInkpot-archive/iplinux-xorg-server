@@ -297,10 +297,9 @@ fbdevScreenInit (KdScreenInfo *screen)
 {
     FbdevScrPriv *scrpriv;
 
-    scrpriv = xalloc (sizeof (FbdevScrPriv));
+    scrpriv = xcalloc (1, sizeof (FbdevScrPriv));
     if (!scrpriv)
 	return FALSE;
-    memset (scrpriv, '\0', sizeof (FbdevScrPriv));
     screen->driver = scrpriv;
     if (!fbdevScreenInitialize (screen, scrpriv))
     {
@@ -771,7 +770,7 @@ fbdevGetColors (ScreenPtr pScreen, int fb, int n, xColorItem *pdefs)
     cmap.start = min;
     cmap.len = max - min + 1;
     cmap.red = &priv->red[min];
-    cmap.green = &priv->green[min];;
+    cmap.green = &priv->green[min];
     cmap.blue = &priv->blue[min];
     cmap.transp = 0;
     k = ioctl (priv->fd, FBIOGETCMAP, &cmap);

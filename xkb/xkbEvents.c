@@ -37,6 +37,7 @@ THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #include <X11/extensions/XIproto.h>
 #include "inputstr.h"
 #include "windowstr.h"
+#include "exevents.h"
 #include <xkbsrv.h>
 #include "xkb.h"
 
@@ -109,7 +110,7 @@ Time 		time;
 register CARD16	changed,bState;
 
     interest = kbd->xkb_interest;
-    if (!interest)
+    if (!interest || !kbd->key || !kbd->key->xkbInfo)
 	return;
     xkbi = kbd->key->xkbInfo;
     state= &xkbi->state;
@@ -167,6 +168,9 @@ int 		i;
 XkbSrvInfoPtr	xkbi;
 unsigned	time = 0,initialized;
 CARD16		changed;
+
+    if (!kbd->key || !kbd->key->xkbInfo)
+        return;
 
     xkbi = kbd->key->xkbInfo;
     initialized= 0;
@@ -291,7 +295,7 @@ XkbInterestPtr		interest;
 Time 		 	time = 0;
 
     interest = kbd->xkb_interest;
-    if (!interest)
+    if (!interest || !kbd->key || !kbd->key->xkbInfo)
 	return;
     xkbi = kbd->key->xkbInfo;
  
@@ -400,6 +404,9 @@ CARD8		id;
 CARD16		pitch,duration;
 Time 		time = 0;
 XID		winID = 0;
+
+    if (!kbd->key || !kbd->key->xkbInfo)
+        return;
 
     xkbi = kbd->key->xkbInfo;
 
@@ -616,11 +623,12 @@ XkbSrvInfoPtr	 xkbi;
 XkbInterestPtr	 interest;
 Time 		 time = 0;
 
-    xkbi = kbd->key->xkbInfo;
     interest = kbd->xkb_interest;
-    if (!interest)
+    if (!interest || !kbd->key || !kbd->key->xkbInfo)
 	return;
  
+    xkbi = kbd->key->xkbInfo;
+
     initialized = 0;
     pEv->mods= xkbi->state.mods;
     pEv->group= xkbi->state.group;
@@ -811,7 +819,15 @@ int	i, button_mask;
 DeviceIntPtr pXDev = inputInfo.keyboard;
 XkbSrvInfoPtr	xkbi;
 
-    xkbi= pXDev->key->xkbInfo;
+    if (xE->u.u.type & EXTENSION_EVENT_BASE)
+    {
+        pXDev = XIGetDevice(xE);
+        if (!pXDev)
+            pXDev = inputInfo.keyboard;
+    }
+
+    xkbi= (pXDev->key) ? pXDev->key->xkbInfo : NULL;
+
     if ( pClient->xkbClientFlags & _XkbClientInitialized ) {
 	if ((xkbDebugFlags&0x10)&&
 		((xE[0].u.u.type==KeyPress)||(xE[0].u.u.type==KeyRelease)||
@@ -833,6 +849,10 @@ XkbSrvInfoPtr	xkbi;
 	     	(_XkbIsReleaseEvent(xE[0].u.u.type)) ) {
 	    return False;
 	}
+
+        if (!xkbi)
+            return True;
+
 	if ((pXDev->deviceGrab.grab != NullGrab) 
                 && pXDev->deviceGrab.fromPassiveGrab &&
 	    ((xE[0].u.u.type==KeyPress)||(xE[0].u.u.type==KeyRelease)||
@@ -870,11 +890,14 @@ XkbSrvInfoPtr	xkbi;
 	     * Faking a release of the button here solves the problem.
 	     */
 	    DebugF("[xkb] Faking release of button %d\n", xE[0].u.u.detail);
-	    XkbDDXFakePointerButton(ButtonRelease, xE[0].u.u.detail);
+	    XkbDDXFakeDeviceButton(xkbi->device, 0, xE[0].u.u.detail);
         }
     }
     else {
 	register CARD8 	type;
+
+        if (!xkbi)
+            return True;
 
 	for (i=0;i<nEvents;i++) {
 	    type= xE[i].u.u.type;
@@ -913,22 +936,18 @@ XkbSrvInfoPtr	xkbi;
 		     new|= xkbi->state.compat_lookup_mods;
 		else new|= xkbi->state.compat_grab_mods;
                 kbp->state= new;
-            } else if ((type==DeviceEnterNotify)||(type==DeviceLeaveNotify)) {
-                deviceEnterNotify *del = (deviceEnterNotify*)&xE[i];
-                del->state&=0x1F00;
-                del->state|= xkbi->state.compat_grab_mods;
             }
 	    button_mask = 1 << xE[i].u.u.detail;
 	    if (type == ButtonPress &&
 		((xE[i].u.keyButtonPointer.state >> 7) & button_mask) == button_mask &&
 		(xkbi->lockedPtrButtons & button_mask) == button_mask) {
 		DebugF("[xkb] Faking release of button %d\n", xE[i].u.u.detail);
-		XkbDDXFakePointerButton(ButtonRelease, xE[i].u.u.detail);
+		XkbDDXFakeDeviceButton(xkbi->device, 0, xE[i].u.u.detail);
 	    } else if (type == DeviceButtonPress &&
                     ((((deviceKeyButtonPointer*)&xE[i])->state >> 7) & button_mask) == button_mask &&
                     (xkbi->lockedPtrButtons & button_mask) == button_mask) {
 		DebugF("[xkb] Faking release of button %d\n", ((deviceKeyButtonPointer*)&xE[i])->state);
-		XkbDDXFakePointerButton(DeviceButtonRelease, ((deviceKeyButtonPointer*)&xE[i])->state);
+		XkbDDXFakeDeviceButton(xkbi->device, 0, ((deviceKeyButtonPointer*)&xE[i])->state);
             }
 	}
     }
@@ -1000,6 +1019,10 @@ unsigned long	autoCtrls,autoValues;
 ClientPtr	client = NULL;
 
     found= False;
+
+    if (!dev->key || !dev->key->xkbInfo)
+        return found;
+
     autoCtrls= autoValues= 0;
     if ( dev->xkb_interest ) {
 	interest = dev->xkb_interest;

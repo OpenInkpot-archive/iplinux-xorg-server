@@ -107,6 +107,7 @@ static void eventHandler(unsigned int type, const void *arg,
                 DRISurfaceNotify(*(xp_surface_id *) arg, kind);
             }
             break;
+#ifdef XP_EVENT_SPACE_CHANGED
         case  XP_EVENT_SPACE_CHANGED:
             DEBUG_LOG("XP_EVENT_SPACE_CHANGED\n");
             if(arg_size == sizeof(uint32_t)) {
@@ -114,6 +115,7 @@ static void eventHandler(unsigned int type, const void *arg,
                 DarwinSendDDXEvent(kXquartzSpaceChanged, 1, space_id);
             }
             break;
+#endif
         default:
             ErrorF("Unknown XP_EVENT type (%d) in xprScreen:eventHandler\n", type);
     }
@@ -142,7 +144,7 @@ displayAtIndex(int index)
  *  Return the bounds of a particular display.
  */
 static CGRect
-displayScreenBounds(CGDirectDisplayID id, Bool remove_menubar)
+displayScreenBounds(CGDirectDisplayID id)
 {
     CGRect frame;
 
@@ -153,7 +155,7 @@ displayScreenBounds(CGDirectDisplayID id, Bool remove_menubar)
               (int)frame.origin.x, (int)frame.origin.y);
     
     /* Remove menubar to help standard X11 window managers. */
-    if (remove_menubar && !quartzHasRoot && 
+    if (quartzEnableRootless && 
         frame.origin.x == 0 && frame.origin.y == 0) {
         frame.origin.y += aquaMenuBarHeight;
         frame.size.height -= aquaMenuBarHeight;
@@ -184,15 +186,9 @@ xprAddPseudoramiXScreens(int *x, int *y, int *width, int *height)
     CGGetActiveDisplayList(displayCount, displayList, &displayCount);
 
     /* Get the union of all screens */
-    for (i = 0; i < displayCount; i++)
-    {
-
-        /* we can't remove the menubar from the screen - doing so
-         * would constrain the pointer to the screen, not allowing it
-         * to reach the menubar..
-         */
+    for (i = 0; i < displayCount; i++) {
         CGDirectDisplayID dpy = displayList[i];
-        frame = displayScreenBounds(dpy, FALSE);
+        frame = displayScreenBounds(dpy);
         unionRect = CGRectUnion(unionRect, frame);
     }
 
@@ -210,7 +206,7 @@ xprAddPseudoramiXScreens(int *x, int *y, int *width, int *height)
     {
         CGDirectDisplayID dpy = displayList[i];
 
-        frame = displayScreenBounds(dpy, TRUE);
+        frame = displayScreenBounds(dpy);
         frame.origin.x -= unionRect.origin.x;
         frame.origin.y -= unionRect.origin.y;
 
@@ -251,9 +247,11 @@ xprDisplayInit(void)
     xp_select_events(XP_EVENT_DISPLAY_CHANGED
                      | XP_EVENT_WINDOW_STATE_CHANGED
                      | XP_EVENT_WINDOW_MOVED
+#ifdef XP_EVENT_SPACE_CHANGED
+                     | XP_EVENT_SPACE_CHANGED
+#endif
                      | XP_EVENT_SURFACE_CHANGED
-                     | XP_EVENT_SURFACE_DESTROYED
-                     | XP_EVENT_SPACE_CHANGED,
+                     | XP_EVENT_SURFACE_DESTROYED,
                      eventHandler, NULL);
 
     AppleDRIExtensionInit();
@@ -280,18 +278,17 @@ xprAddScreen(int index, ScreenPtr pScreen)
     }
     
     switch(depth) {
-        case -8: // broken
-            FatalError("Unsupported color depth %d\n", darwinDesiredDepth);
-            dfb->visuals = (1 << StaticGray) | (1 << GrayScale);
-            dfb->preferredCVC = GrayScale;
-            dfb->depth = 8;
-            dfb->bitsPerRGB = 8;
-            dfb->bitsPerPixel = 8;
-            dfb->redMask = 0;
-            dfb->greenMask = 0;
-            dfb->blueMask = 0;
-            break;
-        case 8: // broken
+//        case -8: // broken
+//            dfb->visuals = (1 << StaticGray) | (1 << GrayScale);
+//            dfb->preferredCVC = GrayScale;
+//            dfb->depth = 8;
+//            dfb->bitsPerRGB = 8;
+//            dfb->bitsPerPixel = 8;
+//            dfb->redMask = 0;
+//            dfb->greenMask = 0;
+//            dfb->blueMask = 0;
+//            break;
+        case 8: // pseudo-working
             dfb->visuals = PseudoColorMask;
             dfb->preferredCVC = PseudoColor;
             dfb->depth = 8;
@@ -311,7 +308,10 @@ xprAddScreen(int index, ScreenPtr pScreen)
             dfb->greenMask = 0x03e0;
             dfb->blueMask  = 0x001f;
             break;
-        case 24:
+//        case 24:
+        default:
+            if(depth != 24)
+                ErrorF("Unsupported color depth requested.  Defaulting to 24bit. (depth=%d darwinDesiredDepth=%d CGDisplaySamplesPerPixel=%d CGDisplayBitsPerSample=%d)\n",  darwinDesiredDepth, depth, (int)CGDisplaySamplesPerPixel(kCGDirectMainDisplay), (int)CGDisplayBitsPerSample(kCGDirectMainDisplay));
             dfb->visuals = LARGE_VISUALS;
             dfb->preferredCVC = TrueColor;
             dfb->depth = 24;
@@ -321,8 +321,6 @@ xprAddScreen(int index, ScreenPtr pScreen)
             dfb->greenMask = 0x0000ff00;
             dfb->blueMask  = 0x000000ff;
             break;
-        default:
-            FatalError("Unsupported color depth %d\n", darwinDesiredDepth);
     }
 
     if (noPseudoramiXExtension)
@@ -334,7 +332,7 @@ xprAddScreen(int index, ScreenPtr pScreen)
 
         dpy = displayAtIndex(index);
 
-        frame = displayScreenBounds(dpy, TRUE);
+        frame = displayScreenBounds(dpy);
 
         dfb->x = frame.origin.x;
         dfb->y = frame.origin.y;
@@ -425,12 +423,8 @@ static QuartzModeProcsRec xprModeProcs = {
     xprSetupScreen,
     xprInitInput,
     QuartzInitCursor,
-    NULL,               // No need to update cursor
     QuartzSuspendXCursor,
     QuartzResumeXCursor,
-    NULL,               // No capture or release in rootless mode
-    NULL,
-    NULL,               // Xplugin sends screen change events directly
     xprAddPseudoramiXScreens,
     xprUpdateScreen,
     xprIsX11Window,

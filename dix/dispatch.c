@@ -197,7 +197,7 @@ XID clientErrorValue;   /* XXX this is a kludge */
 #define SAME_SCREENS(a, b) (\
     (a.pScreen == b.pScreen))
 
-_X_EXPORT void
+void
 SetInputCheck(HWEventQueuePtr c0, HWEventQueuePtr c1)
 {
     checkForInput[0] = c0;
@@ -2875,18 +2875,16 @@ ProcCreateCursor (ClientPtr client)
 	return (BadMatch);
 
     n = BitmapBytePad(width)*height;
-    srcbits = (unsigned char *)xalloc(n);
+    srcbits = xcalloc(1, n);
     if (!srcbits)
 	return (BadAlloc);
-    mskbits = (unsigned char *)xalloc(n);
+    mskbits = xalloc(n);
     if (!mskbits)
     {
 	xfree(srcbits);
 	return (BadAlloc);
     }
 
-    /* zeroing the (pad) bits helps some ddx cursor handling */
-    bzero((char *)srcbits, n);
     (* src->drawable.pScreen->GetImage)( (DrawablePtr)src, 0, 0, width, height,
 					 XYPixmap, 1, (pointer)srcbits);
     if ( msk == (PixmapPtr)NULL)
@@ -3377,7 +3375,6 @@ CloseDownClient(ClientPtr client)
 	DeleteClientFromAnySelections(client);
 	ReleaseActiveGrabs(client);
 	DeleteClientFontStuff(client);
-        ACUnregisterClient(client);
 	if (!really_close_down)
 	{
 	    /*  This frees resources that should never be retained
@@ -3485,6 +3482,8 @@ void InitClient(ClientPtr client, int i, pointer ospriv)
     if (!noXkbExtension) {
 	client->xkbClientFlags = 0;
 	client->mapNotifyMask = 0;
+	client->newKeyboardNotifyMask = 0;
+	client->vMinor = client->vMajor = 0;
 	QueryMinMaxKeyCodes(&client->minKC,&client->maxKC);
     }
 #endif

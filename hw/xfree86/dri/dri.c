@@ -302,6 +302,18 @@ DRIOpenDRMMaster(ScrnInfoPtr pScrn,
     return FALSE;
 }
 
+static void
+DRIClipNotifyAllDrawables(ScreenPtr pScreen);
+
+static void
+dri_crtc_notify(ScreenPtr pScreen)
+{
+    DRIScreenPrivPtr  pDRIPriv = DRI_SCREEN_PRIV(pScreen);
+    DRIClipNotifyAllDrawables(pScreen);
+    xf86_unwrap_crtc_notify(pScreen, pDRIPriv->xf86_crtc_notify);
+    xf86_crtc_notify(pScreen);
+    pDRIPriv->xf86_crtc_notify = xf86_wrap_crtc_notify(pScreen, dri_crtc_notify);
+}
 
 Bool
 DRIScreenInit(ScreenPtr pScreen, DRIInfoPtr pDRIInfo, int *pDRMFD)
@@ -351,7 +363,6 @@ DRIScreenInit(ScreenPtr pScreen, DRIInfoPtr pDRIInfo, int *pDRMFD)
     pDRIPriv = (DRIScreenPrivPtr) xcalloc(1, sizeof(DRIScreenPrivRec));
     if (!pDRIPriv) {
 	dixSetPrivate(&pScreen->devPrivates, DRIScreenPrivKey, NULL);
-        DRIScreenPrivKey = NULL;
         return FALSE;
     }
 
@@ -606,6 +617,9 @@ DRIFinishScreenInit(ScreenPtr pScreen)
     pDRIPriv->DestroyWindow             = pScreen->DestroyWindow;
     pScreen->DestroyWindow              = DRIDestroyWindow;
 
+    pDRIPriv->xf86_crtc_notify = xf86_wrap_crtc_notify(pScreen,
+						       dri_crtc_notify);
+						       
     if (pDRIInfo->wrap.CopyWindow) {
 	pDRIPriv->wrap.CopyWindow       = pScreen->CopyWindow;
 	pScreen->CopyWindow             = pDRIInfo->wrap.CopyWindow;
@@ -659,6 +673,9 @@ DRICloseScreen(ScreenPtr pScreen)
 		pScreen->DestroyWindow          = pDRIPriv->DestroyWindow;
 		pDRIPriv->DestroyWindow         = NULL;
 	    }
+
+	    xf86_unwrap_crtc_notify(pScreen, pDRIPriv->xf86_crtc_notify);
+
 	    if (pDRIInfo->wrap.CopyWindow) {
 		pScreen->CopyWindow             = pDRIPriv->wrap.CopyWindow;
 		pDRIPriv->wrap.CopyWindow       = NULL;
@@ -672,6 +689,7 @@ DRICloseScreen(ScreenPtr pScreen)
 		pScrn->AdjustFrame              = pDRIPriv->wrap.AdjustFrame;
 		pDRIPriv->wrap.AdjustFrame      = NULL;
 	    }
+	    
 	    pDRIPriv->wrapped = FALSE;
 	}
 
@@ -744,7 +762,6 @@ DRICloseScreen(ScreenPtr pScreen)
 
 	xfree(pDRIPriv);
 	dixSetPrivate(&pScreen->devPrivates, DRIScreenPrivKey, NULL);
-	DRIScreenPrivKey = NULL;
     }
 }
 
@@ -1274,7 +1291,7 @@ DRICreateDrawable(ScreenPtr pScreen, ClientPtr client, DrawablePtr pDrawable,
 	    *hHWDrawable = pDRIDrawablePriv->hwDrawable;
 	}
     }
-    else { /* pixmap (or for GLX 1.3, a PBuffer) */
+    else if (pDrawable->type != DRAWABLE_PIXMAP) { /* PBuffer */
 	/* NOT_DONE */
 	return FALSE;
     }

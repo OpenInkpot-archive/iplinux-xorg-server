@@ -171,14 +171,25 @@ static OsCommPtr AvailableInput = (OsCommPtr)NULL;
  *    a partial request) because others clients need to be scheduled.
  *****************************************************************/
 
-#define YieldControl()				\
-        { isItTimeToYield = TRUE;		\
-	  timesThisConnection = 0; }
-#define YieldControlNoInput()			\
-        { YieldControl();			\
-	  FD_CLR(fd, &ClientsWithInput); }
-#define YieldControlDeath()			\
-        { timesThisConnection = 0; }
+static void
+YieldControl(void)
+{
+    isItTimeToYield = TRUE;
+    timesThisConnection = 0;
+}
+
+static void
+YieldControlNoInput(int fd)
+{
+    YieldControl();
+    FD_CLR(fd, &ClientsWithInput);
+}
+
+static void
+YieldControlDeath(void)
+{
+    timesThisConnection = 0;
+}
 
 int
 ReadRequestFromClient(ClientPtr client)
@@ -335,7 +346,7 @@ ReadRequestFromClient(ClientPtr client)
 		if (0)
 #endif
 		{
-		    YieldControlNoInput();
+		    YieldControlNoInput(fd);
 		    return 0;
 		}
 	    }
@@ -377,7 +388,7 @@ ReadRequestFromClient(ClientPtr client)
 	if (gotnow < needed)
 	{
 	    /* Still don't have enough; punt. */
-	    YieldControlNoInput();
+	    YieldControlNoInput(fd);
 	    return 0;
 	}
     }
@@ -414,7 +425,7 @@ ReadRequestFromClient(ClientPtr client)
 	    if (!SmartScheduleDisable)
 		FD_CLR(fd, &ClientsWithInput);
 	    else
-		YieldControlNoInput();
+		YieldControlNoInput(fd);
 	}
     }
     else
@@ -424,7 +435,7 @@ ReadRequestFromClient(ClientPtr client)
 	if (!SmartScheduleDisable)
 	    FD_CLR(fd, &ClientsWithInput);
 	else
-	    YieldControlNoInput();
+	    YieldControlNoInput(fd);
     }
     if (SmartScheduleDisable)
     if (++timesThisConnection >= MAX_TIMES_PER)
@@ -518,7 +529,7 @@ InsertFakeRequest(ClientPtr client, char *data, int count)
 	(gotnow >= (int)(get_req_len((xReq *)oci->bufptr, client) << 2)))
 	FD_SET(fd, &ClientsWithInput);
     else
-	YieldControlNoInput();
+	YieldControlNoInput(fd);
     return(TRUE);
 }
 
@@ -542,7 +553,7 @@ ResetCurrentRequest(ClientPtr client)
     gotnow = oci->bufcnt + oci->buffer - oci->bufptr;
     if (gotnow < sizeof(xReq))
     {
-	YieldControlNoInput();
+	YieldControlNoInput(fd);
     }
     else
     {
@@ -572,17 +583,11 @@ ResetCurrentRequest(ClientPtr client)
 	    YieldControl();
 	}
 	else
-	    YieldControlNoInput();
+	    YieldControlNoInput(fd);
     }
 }
 
-
-
-_X_EXPORT CallbackListPtr SkippedRequestsCallback = NULL;
-
-    /* lookup table for adding padding bytes to data that is read from
-    	or written to the X socket.  */
-static int padlength[4] = {0, 3, 2, 1};
+static const int padlength[4] = {0, 3, 2, 1};
 
  /********************
  * FlushAllOutput()

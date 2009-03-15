@@ -28,12 +28,11 @@
    prior written authorization. */
 
 #include "sanitizedCarbon.h"
+#include <AvailabilityMacros.h>
 
 #ifdef HAVE_DIX_CONFIG_H
 #include <dix-config.h>
 #endif
-
-#define DEFAULT_PATH "/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/X11/bin"
 
 #include "quartzCommon.h"
 
@@ -54,12 +53,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
-// This will live in pbproxy/x-selection.m when we integrage that into a server thread... for now, living here for testing the UI.
-int pbproxy_active = YES;
-int pbproxy_primary_on_grab = NO; // This is provided as an option for people who want it and has issues that won't ever be addressed to make it *always* work
-int pbproxy_clipboard_to_pasteboard = YES;
-int pbproxy_pasteboard_to_primary = YES;
-int pbproxy_pasteboard_to_clipboard = YES;
+BOOL xquartz_resetenv_display = NO;
 
 @implementation X11Controller
 
@@ -159,8 +153,11 @@ int pbproxy_pasteboard_to_clipboard = YES;
 
       item = (NSMenuItem *) [menu addItemWithTitle:name action:@selector
 				  (item_selected:) keyEquivalent:shortcut];
-
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
       [item setKeyEquivalentModifierMask:(NSUInteger) windowItemModMask];
+#else
+      [item setKeyEquivalentModifierMask:windowItemModMask];
+#endif
       [item setTarget:self];
       [item setTag:i];
       [item setEnabled:YES];
@@ -169,8 +166,11 @@ int pbproxy_pasteboard_to_clipboard = YES;
 				       action:@selector
 				       (item_selected:) keyEquivalent:shortcut
 				       atIndex:i];
-
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
       [item setKeyEquivalentModifierMask:(NSUInteger) windowItemModMask];
+#else
+      [item setKeyEquivalentModifierMask:windowItemModMask];
+#endif
       [item setTarget:self];
       [item setTag:i];
       [item setEnabled:YES];
@@ -314,76 +314,59 @@ int pbproxy_pasteboard_to_clipboard = YES;
 
 - (void) launch_client:(NSString *)filename
 {
-  const char *command = [filename UTF8String];
-  const char *argv[7];
-  int child1, child2 = 0;
-  int status;
-	
-  argv[0] = "/usr/bin/login";
-  argv[1] = "-fp";
-  argv[2] = getlogin();
-  argv[3] = [X11App prefs_get_string:@PREFS_LOGIN_SHELL default:"/bin/sh"];
-  argv[4] = "-c";
-  argv[5] = command;
-  argv[6] = NULL;
-
-  /* Do the fork-twice trick to avoid having to reap zombies */
+    int child1, child2 = 0;
+    int status;
+    const char *newargv[4];
+    char buf[128];
+    char *s;
     
-  child1 = fork();
+    newargv[0] = [X11App prefs_get_string:@PREFS_LOGIN_SHELL default:"/bin/sh"];
+    newargv[1] = "-c";
+    newargv[2] = [filename UTF8String];
+    newargv[3] = NULL;
     
-  switch (child1) {
-  case -1:                                /* error */
-    break;
-      
-  case 0:                                 /* child1 */
-    child2 = fork();
-      
-    switch (child2) {
-      int max_files, i;
-      char buf[1024], *temp;
-	
-    case -1:                            /* error */
-      _exit(1);
-	
-    case 0:                             /* child2 */
-      /* close all open files except for standard streams */
-      max_files = sysconf(_SC_OPEN_MAX);
-      for (i = 3; i < max_files; i++)	close(i);
-	
-      /* ensure stdin is on /dev/null */
-      close(0);
-      open("/dev/null", O_RDONLY);
-	
-      /* Setup environment */
-      temp = getenv("DISPLAY");
-      if (temp == NULL || temp[0] == 0) {
-    snprintf(buf, sizeof(buf), ":%s", display);
-	setenv("DISPLAY", buf, TRUE);
-      }
-	
-      temp = getenv("PATH");
-      if (temp == NULL || temp[0] == 0) 
-	setenv ("PATH", DEFAULT_PATH, TRUE);
-      else if (strnstr(temp, "/usr/X11/bin", sizeof(temp)) == NULL) {
-	snprintf(buf, sizeof(buf), "%s:/usr/X11/bin", temp);            
-	setenv("PATH", buf, TRUE);      
-      }
-      /* cd $HOME */
-      temp = getenv("HOME");
-      if (temp != NULL && temp[0]!=0) chdir(temp);
-	
-      execvp(argv[0], (char **const) argv);
-	
-      _exit(2);
-	
-    default:                            /* parent (child1) */
-      _exit(0);
+    s = getenv("DISPLAY");
+    if (xquartz_resetenv_display || s == NULL || s[0] == 0) {
+        snprintf(buf, sizeof(buf), ":%s", display);
+        setenv("DISPLAY", buf, TRUE);
     }
-    break;
+
+    /* Do the fork-twice trick to avoid having to reap zombies */
+    child1 = fork();
+    switch (child1) {
+        case -1:                                /* error */
+            break;
       
-  default:                                /* parent */
-    waitpid(child1, &status, 0);
-  }
+        case 0:                                 /* child1 */
+            child2 = fork();
+      
+            switch (child2) {
+                int max_files, i;
+	
+                case -1:                            /* error */
+                    _exit(1);
+	 
+                case 0:                             /* child2 */
+                /* close all open files except for standard streams */
+                max_files = sysconf(_SC_OPEN_MAX);
+                for(i = 3; i < max_files; i++)
+                    close(i);
+	
+                /* ensure stdin is on /dev/null */
+                close(0);
+                open("/dev/null", O_RDONLY);
+	
+                execvp(newargv[0], (char **const) newargv);
+                _exit(2);
+	
+                default:                            /* parent (child1) */
+                _exit(0);
+            }
+            break;
+      
+        default:                                /* parent */
+            waitpid(child1, &status, 0);
+    }
 }
 
 - (void) app_selected:sender
@@ -599,23 +582,20 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn row:(int)row
   DarwinSendDDXEvent(kXquartzControllerNotify, 1, AppleWMPreviousWindow);
 }
 
-- (IBAction) enable_fullscreen_changed:sender
-{
-  int value = ![enable_fullscreen intValue];
-	
-#ifdef DARWIN_DDX_MISSING
-  DarwinSendDDXEvent(kXquartzSetRootless, 1, value);
-#endif
-	
-  [NSApp prefs_set_boolean:@PREFS_ROOTLESS value:value];
-  [NSApp prefs_synchronize];
+- (IBAction) enable_fullscreen_changed:sender {
+    int value = ![enable_fullscreen intValue];
+
+    [enable_fullscreen_menu setEnabled:!value];
+
+    DarwinSendDDXEvent(kXquartzSetRootless, 1, value);
+
+    [NSApp prefs_set_boolean:@PREFS_ROOTLESS value:value];
+    [NSApp prefs_synchronize];
 }
 
 - (IBAction) toggle_fullscreen:sender
 {
-#ifdef DARWIN_DDX_MISSING
   DarwinSendDDXEvent(kXquartzToggleFullscreen, 0);
-#endif
 }
 
 - (void) set_can_quit:(OSX_BOOL)state
@@ -629,29 +609,16 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn row:(int)row
     quartzUseSysBeep = [use_sysbeep intValue];
     X11EnableKeyEquivalents = [enable_keyequivs intValue];
     darwinSyncKeymap = [sync_keymap intValue];
+    quartzFullscreenMenu = [enable_fullscreen_menu intValue];
 
-    pbproxy_active = [sync_pasteboard intValue];
-    pbproxy_pasteboard_to_clipboard = [sync_pasteboard_to_clipboard intValue];
-    pbproxy_pasteboard_to_primary = [sync_pasteboard_to_primary intValue];
-    pbproxy_clipboard_to_pasteboard = [sync_clipboard_to_pasteboard intValue];
-    pbproxy_primary_on_grab = [sync_primary_immediately intValue];
-
-    [sync_pasteboard_to_clipboard setEnabled:pbproxy_active];
-    [sync_pasteboard_to_primary setEnabled:pbproxy_active];
-    [sync_clipboard_to_pasteboard setEnabled:pbproxy_active];
-    [sync_primary_immediately setEnabled:pbproxy_active];
-
-    // setEnabled doesn't do this...
-    [sync_text1 setTextColor:pbproxy_active ? [NSColor controlTextColor] : [NSColor disabledControlTextColor]];
-    [sync_text2 setTextColor:pbproxy_active ? [NSColor controlTextColor] : [NSColor disabledControlTextColor]];
-    
     /* after adding prefs here, also add to [X11Application read_defaults]
      and prefs_show */
-	
+
     [NSApp prefs_set_boolean:@PREFS_FAKEBUTTONS value:darwinFakeButtons];
     [NSApp prefs_set_boolean:@PREFS_SYSBEEP value:quartzUseSysBeep];
     [NSApp prefs_set_boolean:@PREFS_KEYEQUIVS value:X11EnableKeyEquivalents];
     [NSApp prefs_set_boolean:@PREFS_SYNC_KEYMAP value:darwinSyncKeymap];
+    [NSApp prefs_set_boolean:@PREFS_FULLSCREEN_MENU value:quartzFullscreenMenu];
     [NSApp prefs_set_boolean:@PREFS_CLICK_THROUGH value:[click_through intValue]];
     [NSApp prefs_set_boolean:@PREFS_FFM value:[focus_follows_mouse intValue]];
     [NSApp prefs_set_boolean:@PREFS_FOCUS_ON_NEW_WINDOW value:[focus_on_new_window intValue]];
@@ -659,19 +626,32 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn row:(int)row
     [NSApp prefs_set_boolean:@PREFS_NO_TCP value:![enable_tcp intValue]];
     [NSApp prefs_set_integer:@PREFS_DEPTH value:[depth selectedTag]];
 
-    [NSApp prefs_set_integer:@PREFS_SYNC_PB value:pbproxy_active];
-    [NSApp prefs_set_integer:@PREFS_SYNC_PB_TO_CLIPBOARD value:pbproxy_pasteboard_to_clipboard];
-    [NSApp prefs_set_integer:@PREFS_SYNC_PB_TO_PRIMARY value:pbproxy_pasteboard_to_primary];
-    [NSApp prefs_set_integer:@PREFS_SYNC_CLIPBOARD_TO_PB value:pbproxy_clipboard_to_pasteboard];
-    [NSApp prefs_set_integer:@PREFS_SYNC_PRIMARY_ON_SELECT value:pbproxy_primary_on_grab];
-    
-    system("killall -HUP quartz-wm");
-	
+    BOOL pbproxy_active = [sync_pasteboard intValue];
+
+    [NSApp prefs_set_boolean:@PREFS_SYNC_PB value:pbproxy_active];
+    [NSApp prefs_set_boolean:@PREFS_SYNC_PB_TO_CLIPBOARD value:[sync_pasteboard_to_clipboard intValue]];
+    [NSApp prefs_set_boolean:@PREFS_SYNC_PB_TO_PRIMARY value:[sync_pasteboard_to_primary intValue]];
+    [NSApp prefs_set_boolean:@PREFS_SYNC_CLIPBOARD_TO_PB value:[sync_clipboard_to_pasteboard intValue]];
+    [NSApp prefs_set_boolean:@PREFS_SYNC_PRIMARY_ON_SELECT value:[sync_primary_immediately intValue]];
+
     [NSApp prefs_synchronize];
+
+    [sync_pasteboard_to_clipboard setEnabled:pbproxy_active];
+    [sync_pasteboard_to_primary setEnabled:pbproxy_active];
+    [sync_clipboard_to_pasteboard setEnabled:pbproxy_active];
+    [sync_primary_immediately setEnabled:pbproxy_active];
+    
+    // setEnabled doesn't do this...
+    [sync_text1 setTextColor:pbproxy_active ? [NSColor controlTextColor] : [NSColor disabledControlTextColor]];
+    [sync_text2 setTextColor:pbproxy_active ? [NSColor controlTextColor] : [NSColor disabledControlTextColor]];
+    
+	DarwinSendDDXEvent(kXquartzReloadPreferences, 0);
 }
 
 - (IBAction) prefs_show:sender
 {
+    BOOL pbproxy_active = [NSApp prefs_get_boolean:@PREFS_SYNC_PB default:YES];
+    
     [fake_buttons setIntValue:darwinFakeButtons];
     [use_sysbeep setIntValue:quartzUseSysBeep];
     [enable_keyequivs setIntValue:X11EnableKeyEquivalents];
@@ -684,12 +664,12 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn row:(int)row
     [enable_tcp setIntValue:![NSApp prefs_get_boolean:@PREFS_NO_TCP default:NO]];
 
     [depth selectItemAtIndex:[depth indexOfItemWithTag:[NSApp prefs_get_integer:@PREFS_DEPTH default:-1]]];
-    
+
     [sync_pasteboard setIntValue:pbproxy_active];
-    [sync_pasteboard_to_clipboard setIntValue:pbproxy_pasteboard_to_clipboard];
-    [sync_pasteboard_to_primary setIntValue:pbproxy_pasteboard_to_primary];
-    [sync_clipboard_to_pasteboard setIntValue:pbproxy_clipboard_to_pasteboard];
-    [sync_primary_immediately setIntValue:pbproxy_primary_on_grab];
+    [sync_pasteboard_to_clipboard setIntValue:[NSApp prefs_get_boolean:@PREFS_SYNC_PB_TO_CLIPBOARD default:YES]];
+    [sync_pasteboard_to_primary setIntValue:[NSApp prefs_get_boolean:@PREFS_SYNC_PB_TO_PRIMARY default:YES]];
+    [sync_clipboard_to_pasteboard setIntValue:[NSApp prefs_get_boolean:@PREFS_SYNC_CLIPBOARD_TO_PB default:YES]];
+    [sync_primary_immediately setIntValue:[NSApp prefs_get_boolean:@PREFS_SYNC_PRIMARY_ON_SELECT default:NO]];
 
     [sync_pasteboard_to_clipboard setEnabled:pbproxy_active];
     [sync_pasteboard_to_primary setEnabled:pbproxy_active];
@@ -699,26 +679,27 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn row:(int)row
     // setEnabled doesn't do this...
     [sync_text1 setTextColor:pbproxy_active ? [NSColor controlTextColor] : [NSColor disabledControlTextColor]];
     [sync_text2 setTextColor:pbproxy_active ? [NSColor controlTextColor] : [NSColor disabledControlTextColor]];
-
-    [enable_fullscreen setIntValue:!quartzEnableRootless];
-    // TODO: Add fullscreen support
-    [enable_fullscreen setEnabled:NO];
 	
+    [enable_fullscreen setIntValue:!quartzEnableRootless];
+    [enable_fullscreen_menu setEnabled:!quartzEnableRootless];
+    [enable_fullscreen_menu setIntValue:quartzFullscreenMenu];
+    
     [prefs_panel makeKeyAndOrderFront:sender];
 }
 
-- (IBAction) quit:sender
-{
-  DarwinSendDDXEvent(kXquartzQuit, 0);
+- (IBAction) quit:sender {
+    DarwinSendDDXEvent(kXquartzQuit, 0);
 }
 
-- (IBAction) x11_help:sender
-{
-  AHLookupAnchor ((CFStringRef)NSLocalizedString(@"Mac Help", no comment), CFSTR ("mchlp2276"));
+- (IBAction) x11_help:sender {
+#if MAC_OS_X_VERSION_MIN_REQUIRED < 1060
+    AHLookupAnchor((CFStringRef)NSLocalizedString(@"Mac Help", no comment), CFSTR("mchlp2276"));
+#else
+    AHLookupAnchor(CFSTR("com.apple.machelp"), CFSTR("mchlp2276"));
+#endif
 }
 
-- (OSX_BOOL) validateMenuItem:(NSMenuItem *)item
-{
+- (OSX_BOOL) validateMenuItem:(NSMenuItem *)item {
   NSMenu *menu = [item menu];
     
   if (item == toggle_fullscreen_item)

@@ -213,42 +213,34 @@ extern int XIChangeDeviceProperty(
         int                     /* mode*/,
         unsigned long           /* len*/,
         pointer                 /* value*/,
-        Bool                    /* sendevent*/,
-        Bool                    /* pending*/,
-        Bool                    /* fromClient */
+        Bool                    /* sendevent*/
         );
 
-extern XIPropertyPtr XIQueryDeviceProperty(
-        DeviceIntPtr            /* dev */,
-        Atom                    /* property */
-);
-
-extern XIPropertyValuePtr XIGetDeviceProperty(
+extern int XIGetDeviceProperty(
         DeviceIntPtr            /* dev */,
         Atom                    /* property */,
-        Bool                    /* pending */
+        XIPropertyValuePtr*     /* value */
 );
 
-extern int XIConfigureDeviceProperty(
+extern int XISetDevicePropertyDeletable(
         DeviceIntPtr            /* dev */,
         Atom                    /* property */,
-        Bool                    /* pending */,
-        Bool                    /* range */,
-        Bool                    /* immutable */,
-        int                     /* num_values */,
-        INT32*                  /* values */
+        Bool                    /* deletable */
 );
 
 extern long XIRegisterPropertyHandler(
         DeviceIntPtr         dev,
-        Bool (*SetProperty) (DeviceIntPtr dev,
-                             Atom property,
-                             XIPropertyValuePtr prop),
-        Bool (*GetProperty) (DeviceIntPtr dev,
-                             Atom property)
+        int (*SetProperty) (DeviceIntPtr dev,
+                            Atom property,
+                            XIPropertyValuePtr prop,
+                            BOOL checkonly),
+        int (*GetProperty) (DeviceIntPtr dev,
+                            Atom property),
+        int (*DeleteProperty) (DeviceIntPtr dev,
+                               Atom property)
 );
 
-extern void XIUnRegisterPropertyHandler(
+extern _X_EXPORT void XIUnregisterPropertyHandler(
         DeviceIntPtr          dev,
         long                  id
 );
@@ -256,5 +248,7 @@ extern void XIUnRegisterPropertyHandler(
 extern Atom XIGetKnownProperty(
         char*                 name
 );
+
+extern DeviceIntPtr XIGetDevice(xEvent *ev);
 
 #endif /* EXEVENTS_H */

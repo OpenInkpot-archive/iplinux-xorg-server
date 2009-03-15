@@ -85,6 +85,51 @@ handle_edid_quirks(xf86MonPtr m)
 	    }
 	}
     }
+
+    /*
+     * some monitors encode the aspect ratio instead of the physical size.
+     * try to find the largest detailed timing that matches that aspect
+     * ratio and use that to fill in the feature section.
+     */
+    if ((m->features.hsize == 16 && m->features.vsize == 9) ||
+	(m->features.hsize == 16 && m->features.vsize == 10) ||
+	(m->features.hsize == 4 && m->features.vsize == 3) ||
+	(m->features.hsize == 5 && m->features.vsize == 4)) {
+	int real_hsize = 0, real_vsize = 0;
+	float target_aspect, timing_aspect;
+	
+	target_aspect = (float)m->features.hsize / (float)m->features.vsize;
+	for (i = 0; i < 4; i++) {
+	    if (m->det_mon[i].type == DT) {
+		struct detailed_timings *timing;
+		timing = &m->det_mon[i].section.d_timings;
+
+		if (!timing->v_size)
+		    continue;
+
+		timing_aspect = (float)timing->h_size / (float)timing->v_size;
+		if (fabs(1 - (timing_aspect / target_aspect)) < 0.05) {
+		    real_hsize = max(real_hsize, timing->h_size);
+		    real_vsize = max(real_vsize, timing->v_size);
+		}
+	    }
+	}
+
+	if (!real_hsize || !real_vsize) {
+	    m->features.hsize = m->features.vsize = 0;
+	} else if ((m->features.hsize * 10 == real_hsize) &&
+		   (m->features.vsize * 10 == real_vsize)) {
+	    /* exact match is just unlikely, should do a better check though */
+	    m->features.hsize = m->features.vsize = 0;
+	} else {
+	    /* convert mm to cm */
+	    m->features.hsize = (real_hsize + 5) / 10;
+	    m->features.vsize = (real_vsize + 5) / 10;
+	}
+	
+	xf86Msg(X_INFO, "Quirked EDID physical size to %dx%d cm\n",
+		m->features.hsize, m->features.vsize);
+    }
 }
 
 xf86MonPtr
@@ -413,4 +458,57 @@ validate_version(int scrnIndex, struct edid_version *r)
 		   r->revision, MAX_EDID_MINOR);
 
     return TRUE;
+}
+
+/*
+ * Returns true if HDMI, false if definitely not or unknown.
+ */
+_X_EXPORT Bool
+xf86MonitorIsHDMI(xf86MonPtr mon)
+{
+    int i = 0, version, offset;
+    char *edid = NULL;
+
+    if (!mon)
+       return FALSE;
+
+    if (!(mon->flags & EDID_COMPLETE_RAWDATA))
+       return FALSE;
+
+    if (!mon->no_sections)
+       return FALSE;
+
+    edid = (char *)mon->rawData;
+    if (!edid)
+       return FALSE;
+
+    /* find the CEA extension block */
+    for (i = 1; i <= mon->no_sections; i++)
+       if (edid[i * 128] == 0x02)
+           break;
+    if (i == mon->no_sections + 1)
+       return FALSE;
+    edid += (i * 128);
+
+    version = edid[1];
+    offset = edid[2];
+    if (version < 3 || offset < 4)
+       return FALSE;
+
+    /* walk the cea data blocks */
+    for (i = 4; i < offset; i += (edid[i] & 0x1f) + 1) {
+       char *x = edid + i;
+
+       /* find a vendor specific block */
+       if ((x[0] & 0xe0) >> 5 == 0x03) {
+           int oui = (x[3] << 16) + (x[2] << 8) + x[1];
+
+           /* find the HDMI vendor OUI */
+           if (oui == 0x000c03)
+               return TRUE;
+       }
+    }
+
+    /* guess it's not HDMI after all */
+    return FALSE;
 }

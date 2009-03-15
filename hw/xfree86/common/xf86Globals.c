@@ -98,37 +98,46 @@ InputInfoPtr xf86InputDevs = NULL;
 /* Globals that video drivers may not access */
 
 xf86InfoRec xf86Info = {
-	-1,		/* consoleFd */
-	-1,		/* vtno */
-	FALSE,		/* vtSysreq */
-	SKWhenNeeded,	/* ddxSpecialKeys */
-	-1,		/* lastEventTime */
-	FALSE,		/* vtRequestsPending */
-	FALSE,		/* dontVTSwitch */
-	FALSE,		/* dontZap */
-	FALSE,		/* dontZoom */
-	FALSE,		/* notrapSignals */
-	FALSE,		/* caughtSignal */
-	NULL,		/* currentScreen */
+    .consoleFd                  = -1,
+    .vtno                       = -1,
+    .vtSysreq                   = FALSE,
+    .ddxSpecialKeys             = SKWhenNeeded,
+    .lastEventTime              = -1,
+    .vtRequestsPending          = FALSE,
+    .dontVTSwitch               = FALSE,
+    .dontZap                    = FALSE,
+    .dontZoom                   = FALSE,
+    .notrapSignals              = FALSE,
+    .caughtSignal               = FALSE,
+    .currentScreen              = NULL,
 #ifdef CSRG_BASED
-	-1,		/* screenFd */
-	-1,		/* consType */
+    .screenFd                   = -1,
+    .consType                   = -1,
 #endif
-	FALSE,		/* allowMouseOpenFail */
-	TRUE,		/* vidModeEnabled */
-	FALSE,		/* vidModeAllowNonLocal */
-	TRUE,		/* miscModInDevEnabled */
-	FALSE,		/* miscModInDevAllowNonLocal */
-	Pix24DontCare,	/* pixmap24 */
-	X_DEFAULT,	/* pix24From */
+    .allowMouseOpenFail         = FALSE,
+    .vidModeEnabled             = TRUE,
+    .vidModeAllowNonLocal       = FALSE,
+    .miscModInDevEnabled        = TRUE,
+    .miscModInDevAllowNonLocal  = FALSE,
+    .pixmap24                   = Pix24DontCare,
+    .pix24From                  = X_DEFAULT,
 #ifdef __i386__
-	FALSE,		/* pc98 */
+    .pc98                       = FALSE,
 #endif
-	TRUE,		/* pmFlag */
-	LogNone,	/* syncLog */
-	FALSE,		/* kbdCustomKeycodes */
-	FALSE,		/* disableRandR */
-	X_DEFAULT	/* randRFrom */
+    .pmFlag                     = TRUE,
+    .log                        = LogNone,
+    .kbdCustomKeycodes          = FALSE,
+    .disableRandR               = FALSE,
+    .randRFrom                  = X_DEFAULT,
+#ifdef CONFIG_HAL
+    .allowEmptyInput            = TRUE,
+    .autoAddDevices             = TRUE,
+    .autoEnableDevices          = TRUE
+#else
+    .allowEmptyInput            = FALSE,
+    .autoAddDevices             = FALSE,
+    .autoEnableDevices          = FALSE
+#endif
 };
 const char *xf86ConfigFile = NULL;
 const char *xf86InputDeviceList = NULL;
@@ -144,6 +153,8 @@ Bool xf86Resetting = FALSE;
 Bool xf86Initialising = FALSE;
 Bool xf86DoProbe = FALSE;
 Bool xf86DoConfigure = FALSE;
+Bool xf86DoShowOptions = FALSE;
+Bool xf86DoModalias = FALSE;
 DriverPtr *xf86DriverList = NULL;
 int xf86NumDrivers = 0;
 InputDriverPtr *xf86InputDriverList = NULL;
@@ -166,6 +177,7 @@ Bool xf86sFlag = FALSE;
 Bool xf86bsEnableFlag = FALSE;
 Bool xf86bsDisableFlag = FALSE;
 Bool xf86silkenMouseDisableFlag = FALSE;
+Bool xf86xkbdirFlag = FALSE;
 #ifdef HAVE_ACPI
 Bool xf86acpiDisableFlag = FALSE;
 #endif

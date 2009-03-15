@@ -244,21 +244,5 @@ typedef struct _ScreenSaverStuff {
 
 extern int screenIsSaved;
 extern ScreenSaverStuffRec savedScreenInfo[MAXSCREENS];
-extern DevPrivateKey FocusPrivatesKey;
-
-/* Used to maintain semantics of core protocol for Enter/LeaveNotifies and
- * FocusIn/Out events for multiple pointers/keyboards.
- *
- * Each device ID corresponds to one bit. If set, the device is in the
- * window/has focus.
- */
-typedef struct _FocusSemaphores {
-    char                enterleave[(MAX_DEVICES + 7)/8];
-    char                focusinout[(MAX_DEVICES + 7)/8];
-} FocusSemaphoresRec, *FocusSemaphoresPtr;
-
-#ifdef XEVIE
-extern WindowPtr xeviewin;
-#endif
 
 #endif /* WINDOWSTRUCT_H */

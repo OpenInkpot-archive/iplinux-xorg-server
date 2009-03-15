@@ -76,20 +76,15 @@ SOFTWARE.
 
 /* modules local to Xi */
 #include "allowev.h"
-#include "chaccess.h"
-#include "chdevcur.h"
 #include "chgdctl.h"
-#include "chdevhier.h"
 #include "chgfctl.h"
 #include "chgkbd.h"
 #include "chgprop.h"
 #include "chgptr.h"
 #include "closedev.h"
-#include "extgrbdev.h"
 #include "devbell.h"
 #include "getbmap.h"
 #include "getbmap.h"
-#include "getcptr.h"
 #include "getdctl.h"
 #include "getfctl.h"
 #include "getfocus.h"
@@ -105,14 +100,11 @@ SOFTWARE.
 #include "gtmotion.h"
 #include "listdev.h"
 #include "opendev.h"
-#include "qryacces.h"
-#include "querydp.h"
 #include "queryst.h"
 #include "selectev.h"
 #include "sendexev.h"
 #include "chgkmap.h"
 #include "setbmap.h"
-#include "setcptr.h"
 #include "setdval.h"
 #include "setfocus.h"
 #include "setmmap.h"
@@ -120,8 +112,6 @@ SOFTWARE.
 #include "ungrdev.h"
 #include "ungrdevb.h"
 #include "ungrdevk.h"
-#include "warpdevp.h"
-#include "xiselev.h"
 #include "xiproperty.h"
 
 
@@ -129,16 +119,6 @@ static Mask lastExtEventMask = 1;
 int ExtEventIndex;
 Mask ExtValidMasks[EMASKSIZE];
 Mask ExtExclusiveMasks[EMASKSIZE];
-
-
-/**
- * Filters for various generic events.
- * Evtype is index, mask is value at index.
- */
-static Mask xi_filters[4] = {
-    XI_DeviceHierarchyChangedMask,
-    XI_DeviceClassesChangedMask,
-};
 
 static struct dev_type
 {
@@ -211,22 +191,9 @@ static int (*ProcIVector[])(ClientPtr) = {
 	ProcXChangeDeviceControl,               /* 35 */
         /* XI 1.5 */
         ProcXListDeviceProperties,              /* 36 */
-        ProcXQueryDeviceProperty,               /* 37 */
-        ProcXConfigureDeviceProperty,           /* 38 */
-        ProcXChangeDeviceProperty,              /* 39 */
-        ProcXDeleteDeviceProperty,              /* 40 */
-        ProcXGetDeviceProperty,                 /* 41 */
-        /* XI 2 */
-        ProcXQueryDevicePointer,                /* 42 */
-        ProcXWarpDevicePointer,                 /* 43 */
-        ProcXChangeDeviceCursor,                /* 44 */
-        ProcXChangeDeviceHierarchy,             /* 45 */
-        ProcXChangeWindowAccess,                /* 46 */
-        ProcXQueryWindowAccess,                 /* 47 */
-        ProcXSetClientPointer,                  /* 48 */
-        ProcXGetClientPointer,                  /* 49 */
-        ProcXiSelectEvent,                      /* 50 */
-        ProcXExtendedGrabDevice                 /* 51 */
+        ProcXChangeDeviceProperty,              /* 37 */
+        ProcXDeleteDeviceProperty,              /* 38 */
+        ProcXGetDeviceProperty                  /* 39 */
 };
 
 /* For swapped clients */
@@ -268,21 +235,9 @@ static int (*SProcIVector[])(ClientPtr) = {
 	SProcXGetDeviceControl,                  /* 34 */
 	SProcXChangeDeviceControl,               /* 35 */
         SProcXListDeviceProperties,              /* 36 */
-        SProcXQueryDeviceProperty,               /* 37 */
-        SProcXConfigureDeviceProperty,           /* 38 */
-        SProcXChangeDeviceProperty,              /* 39 */
-        SProcXDeleteDeviceProperty,              /* 40 */
-        SProcXGetDeviceProperty,                 /* 41 */
-        SProcXQueryDevicePointer,                /* 42 */
-        SProcXWarpDevicePointer,                 /* 43 */
-        SProcXChangeDeviceCursor,                /* 44 */
-        SProcXChangeDeviceHierarchy,             /* 45 */
-        SProcXChangeWindowAccess,                /* 46 */
-        SProcXQueryWindowAccess,                 /* 47 */
-        SProcXSetClientPointer,                  /* 48 */
-        SProcXGetClientPointer,                  /* 49 */
-        SProcXiSelectEvent,                      /* 50 */
-        SProcXExtendedGrabDevice                 /* 51 */
+        SProcXChangeDeviceProperty,              /* 37 */
+        SProcXDeleteDeviceProperty,              /* 38 */
+        SProcXGetDeviceProperty                  /* 39 */
 };
 
 /*****************************************************************
@@ -310,8 +265,6 @@ Mask DeviceButtonGrabMask;
 Mask DeviceButtonMotionMask;
 Mask DevicePresenceNotifyMask;
 Mask DevicePropertyNotifyMask;
-Mask DeviceEnterWindowMask;
-Mask DeviceLeaveWindowMask;
 
 int DeviceValuator;
 int DeviceKeyPress;
@@ -330,8 +283,6 @@ int DeviceMappingNotify;
 int ChangeDeviceNotify;
 int DevicePresenceNotify;
 int DevicePropertyNotify;
-int DeviceEnterNotify;
-int DeviceLeaveNotify;
 
 int RT_INPUTCLIENT;
 
@@ -344,7 +295,7 @@ int RT_INPUTCLIENT;
 extern XExtensionVersion AllExtensionVersions[];
 
 
-Mask PropagateMask[MAX_DEVICES];
+Mask PropagateMask[MAXDEVICES];
 
 /*****************************************************************
  *
@@ -356,8 +307,8 @@ static int XIClientPrivateKeyIndex;
 DevPrivateKey XIClientPrivateKey = &XIClientPrivateKeyIndex;
 
 static XExtensionVersion thisversion = { XI_Present,
-    XI_2_Major,
-    XI_2_Minor
+    XI_Add_DeviceProperties_Major,
+    XI_Add_DeviceProperties_Minor
 };
 
 
@@ -480,20 +431,8 @@ SReplyIDispatch(ClientPtr client, int len, xGrabDeviceReply * rep)
 				 (xChangeDeviceControlReply *) rep);
     else if (rep->RepType == X_ListDeviceProperties)
         SRepXListDeviceProperties(client, len, (xListDevicePropertiesReply*)rep);
-    else if (rep->RepType == X_QueryDeviceProperty)
-        SRepXQueryDeviceProperty(client, len, (xQueryDevicePropertyReply*)rep);
     else if (rep->RepType == X_GetDeviceProperty)
 	SRepXGetDeviceProperty(client, len, (xGetDevicePropertyReply *) rep);
-    else if (rep->RepType == X_QueryDevicePointer)
-	SRepXQueryDevicePointer(client, len,
-				(xQueryDevicePointerReply *) rep);
-    else if (rep->RepType == X_QueryWindowAccess)
-        SRepXQueryWindowAccess(client, len,
-                               (xQueryWindowAccessReply*) rep);
-    else if (rep->RepType == X_GetClientPointer)
-        SRepXGetClientPointer(client, len, (xGetClientPointerReply*) rep);
-    else if (rep->RepType == X_ExtendedGrabDevice)
-        SRepXExtendedGrabDevice(client, len, (xExtendedGrabDeviceReply*) rep);
     else {
 	FatalError("XINPUT confused sending swapped reply");
     }
@@ -610,70 +549,6 @@ SDevicePropertyNotifyEvent (devicePropertyNotify *from, devicePropertyNotify *to
     swapl(&to->atom, n);
 }
 
-static void
-SDeviceLeaveNotifyEvent (deviceLeaveNotify *from, deviceLeaveNotify *to)
-{
-    char n;
-
-    *to = *from;
-    swaps(&to->sequenceNumber,n);
-    swapl(&to->time, n);
-    swapl(&to->root, n);
-    swapl(&to->event, n);
-    swapl(&to->child, n);
-    swaps(&to->rootX, n);
-    swaps(&to->rootY, n);
-    swaps(&to->eventX, n);
-    swaps(&to->eventY, n);
-}
-
-static void
-SDeviceClassesChangedEvent(deviceClassesChangedEvent* from,
-                           deviceClassesChangedEvent* to)
-{
-    char n;
-    int i, j;
-    xAnyClassPtr any;
-
-    *to = *from;
-    memcpy(&to[1], &from[1], from->length * 4);
-
-    swaps(&to->sequenceNumber, n);
-    swapl(&to->length, n);
-    swapl(&to->time, n);
-   
-    /* now swap the actual classes */
-    any = (xAnyClassPtr)&to[1];
-    for (i = 0; i < to->num_classes; i++)
-    {
-        switch(any->class)
-        {
-            case KeyClass:
-                swaps(&((xKeyInfoPtr)any)->num_keys, n);
-                break;
-            case ButtonClass:
-                swaps(&((xButtonInfoPtr)any)->num_buttons, n);
-                break;
-            case ValuatorClass:
-                {
-                    xValuatorInfoPtr v = (xValuatorInfoPtr)any;
-                    xAxisInfoPtr a = (xAxisInfoPtr)&v[1];
-
-                    swapl(&v->motion_buffer_size, n);
-                    for (j = 0; j < v->num_axes; j++)
-                    {
-                        swapl(&a->min_value, n);
-                        swapl(&a->max_value, n);
-                        swapl(&a->resolution, n);
-                        a++;
-                    }
-                }
-                break;
-        }
-        any = (xAnyClassPtr)((char*)any + any->length);
-    }
-}
-
 /**************************************************************************
  *
  * Allow the specified event to have its propagation suppressed.
@@ -686,7 +561,7 @@ AllowPropagateSuppress(Mask mask)
 {
     int i;
 
-    for (i = 0; i < MAX_DEVICES; i++)
+    for (i = 0; i < MAXDEVICES; i++)
 	PropagateMask[i] |= mask;
 }
 
@@ -707,7 +582,7 @@ GetNextExtEventMask(void)
     }
     lastExtEventMask <<= 1;
 
-    for (i = 0; i < MAX_DEVICES; i++)
+    for (i = 0; i < MAXDEVICES; i++)
 	ExtValidMasks[i] |= mask;
     return mask;
 }
@@ -745,7 +620,7 @@ SetExclusiveAccess(Mask mask)
 {
     int i;
 
-    for (i = 0; i < MAX_DEVICES; i++)
+    for (i = 0; i < MAXDEVICES; i++)
 	ExtExclusiveMasks[i] |= mask;
 }
 
@@ -766,7 +641,7 @@ SetMaskForExtEvent(Mask mask, int event)
     if ((event < LASTEvent) || (event >= 128))
 	FatalError("MaskForExtensionEvent: bogus event number");
 
-    for (i = 0; i < MAX_DEVICES; i++)
+    for (i = 0; i < MAXDEVICES; i++)
         SetMaskForEvent(i, mask, event);
 }
 
@@ -798,8 +673,6 @@ FixExtensionEvents(ExtensionEntry * extEntry)
     DeviceButtonStateNotify = DeviceKeyStateNotify + 1;
     DevicePresenceNotify = DeviceButtonStateNotify + 1;
     DevicePropertyNotify = DevicePresenceNotify + 1;
-    DeviceEnterNotify = DevicePropertyNotify + 1;
-    DeviceLeaveNotify = DeviceEnterNotify + 1;
 
     event_base[KeyClass] = DeviceKeyPress;
     event_base[ButtonClass] = DeviceButtonPress;
@@ -891,14 +764,6 @@ FixExtensionEvents(ExtensionEntry * extEntry)
     DevicePropertyNotifyMask = GetNextExtEventMask();
     SetMaskForExtEvent(DevicePropertyNotifyMask, DevicePropertyNotify);
 
-    DeviceEnterWindowMask = GetNextExtEventMask();
-    SetMaskForExtEvent(DeviceEnterWindowMask, DeviceEnterNotify);
-    AllowPropagateSuppress(DeviceEnterWindowMask);
-
-    DeviceLeaveWindowMask = GetNextExtEventMask();
-    SetMaskForExtEvent(DeviceLeaveWindowMask, DeviceLeaveNotify);
-    AllowPropagateSuppress(DeviceLeaveWindowMask);
-
     SetEventInfo(0, _noExtensionEvent);
 }
 
@@ -920,7 +785,7 @@ RestoreExtensionEvents(void)
     for (i = 0; i < ExtEventIndex - 1; i++) {
 	if ((EventInfo[i].type >= LASTEvent) && (EventInfo[i].type < 128))
         {
-            for (j = 0; j < MAX_DEVICES; j++)
+            for (j = 0; j < MAXDEVICES; j++)
                 SetMaskForEvent(j, 0, EventInfo[i].type);
         }
 	EventInfo[i].mask = 0;
@@ -945,8 +810,6 @@ RestoreExtensionEvents(void)
     DeviceButtonStateNotify = 13;
     DevicePresenceNotify = 14;
     DevicePropertyNotify = 15;
-    DeviceEnterNotify = 16;
-    DeviceLeaveNotify = 17;
 
     BadDevice = 0;
     BadEvent = 1;
@@ -986,8 +849,6 @@ IResetProc(ExtensionEntry * unused)
     EventSwapVector[ChangeDeviceNotify] = NotImplemented;
     EventSwapVector[DevicePresenceNotify] = NotImplemented;
     EventSwapVector[DevicePropertyNotify] = NotImplemented;
-    EventSwapVector[DeviceEnterNotify] = NotImplemented;
-    EventSwapVector[DeviceLeaveNotify] = NotImplemented;
     RestoreExtensionEvents();
 }
 
@@ -1013,7 +874,7 @@ DeviceIsPointerType(DeviceIntPtr dev)
  *
  */
 
-_X_EXPORT void
+void
 AssignTypeAndName(DeviceIntPtr dev, Atom type, char *name)
 {
     dev->type = type;
@@ -1091,43 +952,9 @@ SEventIDispatch(xEvent * from, xEvent * to)
 	DO_SWAP(SDevicePresenceNotifyEvent, devicePresenceNotify);
     else if (type == DevicePropertyNotify)
 	DO_SWAP(SDevicePropertyNotifyEvent, devicePropertyNotify);
-    else if (type == DeviceEnterNotify)
-        DO_SWAP(SDeviceLeaveNotifyEvent, deviceEnterNotify);
-    else if (type == DeviceLeaveNotify)
-        DO_SWAP(SDeviceLeaveNotifyEvent, deviceLeaveNotify);
     else {
 	FatalError("XInputExtension: Impossible event!\n");
     }
-}
-
-/****************************************************************
- *
- * EventSwap for generic events coming from the GE extension.
- */
-
-static void
-XIGEEventSwap(xGenericEvent* from, xGenericEvent* to)
-{
-    int n;
-
-    swaps(&from->sequenceNumber, n);
-    switch(from->evtype)
-    {
-        case XI_DeviceClassesChangedNotify:
-            SDeviceClassesChangedEvent((deviceClassesChangedEvent*)from,
-                                       (deviceClassesChangedEvent*)to);
-            break;
-    }
-}
-
-/**
- * EventFill to fill various fields for events before they are delivered to
- * the client.
- */
-static void
-XIGEEventFill(xGenericEvent* ev, DeviceIntPtr pDev,
-              WindowPtr pWin, GrabPtr grab)
-{
 }
 
 /**********************************************************************
@@ -1181,12 +1008,7 @@ XInputExtensionInit(void)
 	EventSwapVector[DeviceMappingNotify] = SEventIDispatch;
 	EventSwapVector[ChangeDeviceNotify] = SEventIDispatch;
 	EventSwapVector[DevicePresenceNotify] = SEventIDispatch;
-	EventSwapVector[DeviceEnterNotify] = SEventIDispatch;
-	EventSwapVector[DeviceLeaveNotify] = SEventIDispatch;
 
-        /* init GE events */
-        GERegisterExtension(IReqCode, XIGEEventSwap, XIGEEventFill);
-        SetGenericFilter(IReqCode, xi_filters);
     } else {
 	FatalError("IExtensionInit: AddExtensions failed\n");
     }

@@ -46,10 +46,10 @@
 #include "globals.h"
 #include "dix.h"
 
-# include <X11/extensions/XI.h>
-# include <X11/extensions/XIproto.h>
-# include "exevents.h"
-# include "extinit.h"
+#include <X11/extensions/XI.h>
+#include <X11/extensions/XIproto.h>
+#include "exevents.h"
+#include "extinit.h"
 
 #include <sys/types.h>
 #include <sys/time.h>
@@ -74,6 +74,9 @@
 #include "quartzKeyboard.h"
 #include "quartz.h"
 //#include "darwinClut8.h"
+
+#include "GL/visualConfigs.h"
+
 
 #ifdef ENABLE_DEBUG_LOG
 FILE *debug_log_fp = NULL;
@@ -111,10 +114,10 @@ int                     darwinFakeMouse3Mask = NX_COMMANDMASK;
 #endif
 
 // Modifier mask for overriding event delivery to appkit (might be useful to set this to rcommand for input menu
-int                     darwinAppKitModMask = 0; // Any of these bits
+unsigned int            darwinAppKitModMask = 0; // Any of these bits
 
 // Modifier mask for items in the Window menu (0 and -1 cause shortcuts to be disabled)
-int                     windowItemModMask = NX_COMMANDMASK;
+unsigned int            windowItemModMask = NX_COMMANDMASK;
 
 // devices
 DeviceIntPtr            darwinKeyboard = NULL;
@@ -179,7 +182,6 @@ static Bool DarwinSaveScreen(ScreenPtr pScreen, int on)
     return TRUE;
 }
 
-
 /*
  * DarwinAddScreen
  *  This is a callback from dix during AddScreen() from InitOutput().
@@ -219,10 +221,17 @@ static Bool DarwinAddScreen(int index, ScreenPtr pScreen, int argc, char **argv)
 // TODO: Make PseudoColor visuals not suck in TrueColor mode  
 //    if(dfb->depth > 8)
 //        miSetVisualTypesAndMasks(8, PseudoColorMask, 8, PseudoColor, 0, 0, 0);
+
+#if 0
+    /*
+     * These aren't used anymore.  xpr/xprScreen.c initializes the dfb struct
+     * above based on the display properties.
+     */
     if(dfb->depth > 15)
         miSetVisualTypesAndMasks(15, LARGE_VISUALS, 5, TrueColor, 0x7c00, 0x03e0, 0x001f);
     if(dfb->depth > 24)
         miSetVisualTypesAndMasks(24, LARGE_VISUALS, 8, TrueColor, 0x00ff0000, 0x0000ff00, 0x000000ff);
+#endif
 
     miSetPixmapDepths();
 
@@ -231,7 +240,7 @@ static Bool DarwinAddScreen(int index, ScreenPtr pScreen, int argc, char **argv)
     if (monitorResolution)
         dpi = monitorResolution;
     else
-        dpi = 75;
+        dpi = 96;
 
     // initialize fb
     if (! fbScreenInit(pScreen,
@@ -336,11 +345,12 @@ static int DarwinMouseProc(DeviceIntPtr pPointer, int what) {
             
             // Set button map.
             InitPointerDeviceStruct((DevicePtr)pPointer, map, 7,
-                                    GetMotionHistory,
                                     (PtrCtrlProcPtr)NoopDDA,
                                     GetMotionHistorySize(), 2);
-			InitAbsoluteClassDeviceStruct(pPointer);
             pPointer->valuator->mode = Absolute; // Relative
+            InitAbsoluteClassDeviceStruct(pPointer);
+//            InitValuatorAxisStruct(pPointer, 0, 0, XQUARTZ_VALUATOR_LIMIT, 1, 0, 1);
+//            InitValuatorAxisStruct(pPointer, 1, 0, XQUARTZ_VALUATOR_LIMIT, 1, 0, 1);
             break;
         case DEVICE_ON:
             pPointer->public.on = TRUE;
@@ -365,24 +375,18 @@ static int DarwinTabletProc(DeviceIntPtr pPointer, int what) {
             
             // Set button map.
             InitPointerDeviceStruct((DevicePtr)pPointer, map, 3,
-                                    GetMotionHistory,
                                     (PtrCtrlProcPtr)NoopDDA,
                                     GetMotionHistorySize(), 5);
             pPointer->valuator->mode = Absolute; // Relative
             InitProximityClassDeviceStruct(pPointer);
 			InitAbsoluteClassDeviceStruct(pPointer);
 
-//            InitValuatorAxisStruct(pPointer, 0, 0, 1440, 1, 0, 1);
-//            InitValuatorAxisStruct(pPointer, 1, 0, 900, 1, 0, 1);
-            InitValuatorAxisStruct(pPointer, 2, 0, 1023, 1, 0, 1);
-            InitValuatorAxisStruct(pPointer, 3, -64, 64, 1, 0, 1);
-            InitValuatorAxisStruct(pPointer, 4, -64, 64, 1, 0, 1);
-//            InitValuatorAxisStruct(pPointer, 2, 0, 240, 49999, 49999, 49999);
-//            InitValuatorAxisStruct(pPointer, 3, -64, 63, 128, 128, 128);
-//            InitValuatorAxisStruct(pPointer, 4, -64, 63, 128, 128, 128);
-//            InitValuatorAxisStruct(pPointer, 5, 0, 1023, 128, 128, 128);
-            
-//            pPointer->use = IsXExtensionDevice;
+            InitValuatorAxisStruct(pPointer, 0, 0, XQUARTZ_VALUATOR_LIMIT, 1, 0, 1);
+            InitValuatorAxisStruct(pPointer, 1, 0, XQUARTZ_VALUATOR_LIMIT, 1, 0, 1);
+            InitValuatorAxisStruct(pPointer, 2, 0, XQUARTZ_VALUATOR_LIMIT, 1, 0, 1);
+            InitValuatorAxisStruct(pPointer, 3, -XQUARTZ_VALUATOR_LIMIT, XQUARTZ_VALUATOR_LIMIT, 1, 0, 1);
+            InitValuatorAxisStruct(pPointer, 4, -XQUARTZ_VALUATOR_LIMIT, XQUARTZ_VALUATOR_LIMIT, 1, 0, 1);
+//          pPointer->use = IsXExtensionDevice;
             break;
         case DEVICE_ON:
             pPointer->public.on = TRUE;
@@ -471,28 +475,42 @@ int DarwinParseModifierList(const char *constmodifiers, int separatelr)
  */
 void InitInput( int argc, char **argv )
 {
-    darwinKeyboard = AddInputDevice(DarwinKeybdProc, TRUE);
+    darwinKeyboard = AddInputDevice(serverClient, DarwinKeybdProc, TRUE);
     RegisterKeyboardDevice( darwinKeyboard );
-    darwinKeyboard->name = strdup("Quartz Keyboard");
+    darwinKeyboard->name = strdup("keyboard");
 
-    darwinPointer = AddInputDevice(DarwinMouseProc, TRUE);
+    /* here's the snippet from the current gdk sources:
+    if (!strcmp (tmp_name, "pointer"))
+        gdkdev->info.source = GDK_SOURCE_MOUSE;
+    else if (!strcmp (tmp_name, "wacom") ||
+             !strcmp (tmp_name, "pen"))
+        gdkdev->info.source = GDK_SOURCE_PEN;
+    else if (!strcmp (tmp_name, "eraser"))
+        gdkdev->info.source = GDK_SOURCE_ERASER;
+    else if (!strcmp (tmp_name, "cursor"))
+        gdkdev->info.source = GDK_SOURCE_CURSOR;
+    else
+        gdkdev->info.source = GDK_SOURCE_PEN;
+    */
+
+    darwinPointer = AddInputDevice(serverClient, DarwinMouseProc, TRUE);
     RegisterPointerDevice( darwinPointer );
-    darwinPointer->name = strdup("Quartz Pointing Device");
+    darwinPointer->name = strdup("pointer");
 
-    darwinTabletStylus = AddInputDevice(DarwinTabletProc, TRUE);
+    darwinTabletStylus = AddInputDevice(serverClient, DarwinTabletProc, TRUE);
     RegisterPointerDevice( darwinTabletStylus );
-    darwinTabletStylus->name = strdup("stylus");
+    darwinTabletStylus->name = strdup("pen");
 
-    darwinTabletCursor = AddInputDevice(DarwinTabletProc, TRUE);
+    darwinTabletCursor = AddInputDevice(serverClient, DarwinTabletProc, TRUE);
     RegisterPointerDevice( darwinTabletCursor );
     darwinTabletCursor->name = strdup("cursor");
 
-    darwinTabletEraser = AddInputDevice(DarwinTabletProc, TRUE);
+    darwinTabletEraser = AddInputDevice(serverClient, DarwinTabletProc, TRUE);
     RegisterPointerDevice( darwinTabletEraser );
     darwinTabletEraser->name = strdup("eraser");
 
     darwinTabletCurrent = darwinTabletStylus;
-    
+
     DarwinEQInit();
 
     QuartzInitInput(argc, argv);
@@ -578,6 +596,10 @@ void InitOutput( ScreenInfo *pScreenInfo, int argc, char **argv )
     pScreenInfo->numPixmapFormats = NUMFORMATS;
     for (i = 0; i < NUMFORMATS; i++)
         pScreenInfo->formats[i] = formats[i];
+
+#ifdef GLXEXT
+    setVisualConfigs();    
+#endif
 
     // Discover screens and do mode specific initialization
     QuartzInitOutput(argc, argv);
@@ -788,9 +810,6 @@ void ddxUseMsg( void )
 void ddxGiveUp( void )
 {
     ErrorF( "Quitting Xquartz...\n" );
-
-    //if (!quartzRootless)
-    //    quartzProcs->ReleaseScreens();
 }
 
 

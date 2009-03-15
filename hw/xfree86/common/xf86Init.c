@@ -132,7 +132,7 @@ static Bool formatsDone = FALSE;
 #endif
 
 static void
-xf86PrintBanner()
+xf86PrintBanner(void)
 {
 #if PRE_RELEASE
   ErrorF("\n"
@@ -236,13 +236,90 @@ xf86PrintBanner()
 #endif
   ErrorF("\tBefore reporting problems, check "__VENDORDWEBSUPPORT__"\n"
 	 "\tto make sure that you have the latest version.\n");
-  ErrorF("Module Loader present\n");
 }
 
 static void
-xf86PrintMarkers()
+xf86PrintMarkers(void)
 {
   LogPrintMarkers();
+}
+
+static void
+DoModalias(void)
+{
+    int i = -1;
+    char **vlist;
+
+    /* Get all the drivers */
+    vlist = xf86DriverlistFromCompile();
+    if (!vlist) {
+	ErrorF("Missing output drivers.  PCI Access dump failed.\n");
+	goto bail;
+    }
+
+    /* Load all the drivers that were found. */
+    xf86LoadModules(vlist, NULL);
+
+    xfree(vlist);
+
+    /* Iterate through each driver */
+    for (i = 0; i < xf86NumDrivers; i++) {
+        struct pci_id_match *match;
+
+        /* Iterate through each pci id match data, dumping it to the screen */
+        for (match = (struct pci_id_match *) xf86DriverList[i]->supported_devices ;
+                 match && !(!match->vendor_id && !match->device_id) ; match++) {
+             /* Prefix */
+             ErrorF("alias pci:");
+
+             /* Vendor */
+             if (match->vendor_id == ~0)
+                 ErrorF("v*");
+             else
+                 ErrorF("v%08X", match->vendor_id);
+
+             /* Device */
+             if (match->device_id == ~0)
+                 ErrorF("d*");
+             else
+                 ErrorF("d%08X", match->device_id);
+
+             /* Subvendor */
+             if (match->subvendor_id == ~0)
+                 ErrorF("sv*");
+             else
+                 ErrorF("sv%08X", match->subvendor_id);
+
+             /* Subdevice */
+             if (match->subdevice_id == ~0)
+                 ErrorF("sd*");
+             else
+                 ErrorF("sd%08X", match->subdevice_id);
+
+             /* Class */
+             if ((match->device_class_mask >> 16 & 0xFF) == 0xFF)
+                 ErrorF("bc%02X", match->device_class >> 16 & 0xFF);
+             else
+                 ErrorF("bc*");
+             if ((match->device_class_mask >> 8 & 0xFF) == 0xFF)
+                 ErrorF("sc%02X", match->device_class >> 8 & 0xFF);
+             else
+                 ErrorF("sc*");
+             if ((match->device_class_mask & 0xFF) == 0xFF)
+                 ErrorF("i%02X*", match->device_class & 0xFF);
+             else
+                 ErrorF("i*");
+
+             /* Suffix (driver) */
+             ErrorF(" %s\n", xf86DriverList[i]->driverName);
+        }
+    }
+
+bail:
+    OsCleanup(TRUE);
+    AbortDDX();
+    fflush(stderr);
+    exit(0);
 }
 
 static Bool
@@ -471,8 +548,8 @@ add_matching_devices_to_configure_list(DriverPtr drvp)
 		 && ((devices[j].device_class_mask & pPci->device_class)
 		     == devices[j].device_class) ) {
 		if (xf86CheckPciSlot(pPci)) {
-		    GDevPtr pGDev =
-		      xf86AddDeviceToConfigure(drvp->driverName, pPci, -1);
+		    GDevPtr pGDev = xf86AddBusDeviceToConfigure(
+					drvp->driverName, BUS_PCI, pPci, -1);
 		    if (pGDev != NULL) {
 			/* After configure pass 1, chipID and chipRev are
 			 * treated as over-rides, so clobber them here.
@@ -566,6 +643,75 @@ xf86CallDriverProbe( DriverPtr drv, Bool detect_only )
     return foundScreen;
 }
 
+static void
+DoProbe(void)
+{
+    int i;
+    Bool probeResult;
+    Bool ioEnableFailed = FALSE;
+    
+    /* Find the list of video driver modules. */
+    char **list = xf86DriverlistFromCompile();
+    char **l;
+
+    if (list) {
+	ErrorF("List of video driver modules:\n");
+	for (l = list; *l; l++)
+	    ErrorF("\t%s\n", *l);
+    } else {
+	ErrorF("No video driver modules found\n");
+    }
+
+    /* Load all the drivers that were found. */
+    xf86LoadModules(list, NULL);
+
+    /* Disable PCI devices */
+    xf86AccessInit();
+
+    /* Call all of the probe functions, reporting the results. */
+    for (i = 0; i < xf86NumDrivers; i++) {
+	DriverRec * const drv = xf86DriverList[i];
+
+	if (!xorgHWAccess) {
+	    xorgHWFlags flags;
+	    if (!drv->driverFunc
+		|| !drv->driverFunc( NULL, GET_REQUIRED_HW_INTERFACES, &flags )
+		|| NEED_IO_ENABLED(flags)) {
+		if (ioEnableFailed)
+		    continue;
+		if (!xf86EnableIO()) {
+		    ioEnableFailed = TRUE;
+		    continue;
+		}
+		xorgHWAccess = TRUE;
+	    }
+	}
+	    
+
+	xf86MsgVerb(X_INFO, 3, "Probing in driver %s\n",  drv->driverName);
+
+	probeResult = xf86CallDriverProbe( drv, TRUE );
+	if (!probeResult) {
+	    xf86ErrorF("Probe in driver `%s' returns FALSE\n",
+		drv->driverName);
+	} else {
+	    xf86ErrorF("Probe in driver `%s' returns TRUE\n",
+		drv->driverName);
+
+	    /* If we have a result, then call driver's Identify function */
+	    if (drv->Identify != NULL) {
+		const int verbose = xf86SetVerbosity(1);
+		(*drv->Identify)(0);
+		xf86SetVerbosity(verbose);
+	    }
+	}
+    }
+
+    OsCleanup(TRUE);
+    AbortDDX();
+    fflush(stderr);
+    exit(0);
+}
 
 /*
  * InitOutput --
@@ -597,19 +743,21 @@ InitOutput(ScreenInfo *pScreenInfo, int argc, char **argv)
     else
       xf86ServerName = argv[0];
 
-    xf86PrintBanner();
-    xf86PrintMarkers();
-    if (xf86LogFile)  {
-	time_t t;
-	const char *ct;
-	t = time(NULL);
-	ct = ctime(&t);
-	xf86MsgVerb(xf86LogFileFrom, 0, "Log file: \"%s\", Time: %s",
-		    xf86LogFile, ct);
+    if (!xf86DoModalias) {
+	xf86PrintBanner();
+	xf86PrintMarkers();
+	if (xf86LogFile)  {
+	    time_t t;
+	    const char *ct;
+	    t = time(NULL);
+	    ct = ctime(&t);
+	    xf86MsgVerb(xf86LogFileFrom, 0, "Log file: \"%s\", Time: %s",
+			xf86LogFile, ct);
+	}
     }
 
     /* Read and parse the config file */
-    if (!xf86DoProbe && !xf86DoConfigure) {
+    if (!xf86DoProbe && !xf86DoConfigure && !xf86DoModalias && !xf86DoShowOptions) {
       switch (xf86HandleConfigFile(FALSE)) {
       case CONFIG_OK:
 	break;
@@ -634,6 +782,9 @@ InitOutput(ScreenInfo *pScreenInfo, int argc, char **argv)
         LoaderSetOptions(LDR_OPT_ABI_MISMATCH_NONFATAL);
     }
 
+    if (xf86DoShowOptions)
+        DoShowOptions();
+
     xf86OpenConsole();
 
     /* Do a general bus probe.  This will be a PCI probe for x86 platforms */
@@ -644,6 +795,10 @@ InitOutput(ScreenInfo *pScreenInfo, int argc, char **argv)
 
     if (xf86DoConfigure)
 	DoConfigure();
+
+    /* Do the PCI Access dump */
+    if (xf86DoModalias)
+        DoModalias();
 
     if (autoconfig) {
 	if (!xf86AutoConfig()) {
@@ -1156,10 +1311,11 @@ InitInput(argc, argv)
      char	  **argv;
 {
     IDevPtr* pDev;
-    InputDriverPtr pDrv;
-    InputInfoPtr pInfo;
+    DeviceIntPtr dev;
 
     xf86Info.vtRequestsPending = FALSE;
+
+    mieqInit();
 
     /* Call the PreInit function for each input device instance. */
     for (pDev = xf86ConfigLayout.inputs; pDev && *pDev; pDev++) {
@@ -1168,39 +1324,10 @@ InitInput(argc, argv)
             strcpy((*pDev)->driver, "kbd");
         }
 
-        if ((pDrv = xf86LookupInputDriver((*pDev)->driver)) == NULL) {
-            xf86Msg(X_ERROR, "No Input driver matching `%s'\n", (*pDev)->driver);
-            /* XXX For now, just continue. */
-            continue;
-        }
-        if (!pDrv->PreInit) {
-            xf86MsgVerb(X_WARNING, 0,
-                    "Input driver `%s' has no PreInit function (ignoring)\n",
-                    pDrv->driverName);
-            continue;
-        }
-        pInfo = pDrv->PreInit(pDrv, *pDev, 0);
-        if (!pInfo) {
-            xf86Msg(X_ERROR, "PreInit returned NULL for \"%s\"\n",
-                    (*pDev)->identifier);
-            continue;
-        } else if (!(pInfo->flags & XI86_CONFIGURED)) {
-            xf86Msg(X_ERROR, "PreInit failed for input device \"%s\"\n",
-                    (*pDev)->identifier);
-            xf86DeleteInput(pInfo, 0);
-            continue;
-        }
+        /* If one fails, the others will too */
+        if (xf86NewInputDevice(*pDev, &dev, TRUE) == BadAlloc)
+            break;
     }
-
-    /* Initialise all input devices. */
-    pInfo = xf86InputDevs;
-    while (pInfo) {
-        xf86Msg(X_INFO, "evaluating device (%s)\n", pInfo->name);
-	xf86ActivateDevice(pInfo);
-	pInfo = pInfo->next;
-    }
-
-    mieqInit();
 }
 
 /*
@@ -1685,6 +1812,21 @@ ddxProcessArgument(int argc, char **argv, int i)
     xf86AllowMouseOpenFail = TRUE;
     return 1;
   }
+  if (!strcmp(argv[i], "-modalias"))
+  {
+    xf86DoModalias = TRUE;
+    xf86AllowMouseOpenFail = TRUE;
+    return 1;
+  }
+  if (!strcmp(argv[i], "-showopts"))
+  {
+    if (getuid() != 0 && geteuid() == 0) {
+    ErrorF("The '-showopts' option can only be used by root.\n");
+    exit(1);
+    }
+    xf86DoShowOptions = TRUE;
+    return 1;
+  }
   if (!strcmp(argv[i], "-isolateDevice"))
   {
     int bus, device, func;
@@ -1702,6 +1844,13 @@ ddxProcessArgument(int argc, char **argv, int i)
        FatalError("Invalid isolated device specification\n");
     }
   }
+  /* Notice cmdline xkbdir, but pass to dix as well */
+  if (!strcmp(argv[i], "-xkbdir"))
+  {
+    xf86xkbdirFlag = TRUE;
+    return 0;
+  }
+
   /* OS-specific processing */
   return xf86ProcessArgument(argc, argv, i);
 }
@@ -1723,7 +1872,9 @@ ddxUseMsg()
     ErrorF("-modulepath paths      specify the module search path\n");
     ErrorF("-logfile file          specify a log file name\n");
     ErrorF("-configure             probe for devices and write an "__XCONFIGFILE__"\n");
+    ErrorF("-showopts              print available options for all installed drivers\n");
   }
+  ErrorF("-modalias              output a modalias-style filter for each driver installed\n");
   ErrorF("-config file           specify a configuration file, relative to the\n");
   ErrorF("                       "__XCONFIGFILE__" search path, only root can use absolute\n");
   ErrorF("-probeonly             probe for devices, then exit\n");

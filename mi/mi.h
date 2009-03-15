@@ -175,6 +175,10 @@ extern void mieqProcessInputEvents(
 typedef void (*mieqHandler)(int, xEventPtr, DeviceIntPtr, int);
 void mieqSetHandler(int event, mieqHandler handler);
 
+void
+CopyGetMasterEvent(DeviceIntPtr mdev, DeviceIntPtr sdev, xEvent* original,
+                   EventListPtr master, int count);
+
 /* miexpose.c */
 
 extern RegionPtr miHandleExposures(
@@ -369,10 +373,6 @@ extern Bool miRectAlloc(
     int /*n*/
 );
 
-extern int miFindMaxBand(
-    RegionPtr /*prgn*/
-);
-
 #ifdef DEBUG
 extern Bool miValidRegion(
     RegionPtr /*prgn*/
@@ -421,14 +421,6 @@ extern Bool miScreenInit(
 
 extern DevPrivateKey miAllocateGCPrivateIndex(
     void
-);
-
-extern PixmapPtr miGetScreenPixmap(
-    ScreenPtr pScreen
-);
-
-extern void miSetScreenPixmap(
-    PixmapPtr pPix
 );
 
 /* mivaltree.c */

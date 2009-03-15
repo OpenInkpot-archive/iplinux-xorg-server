@@ -47,6 +47,7 @@
 #endif
 #include "xf86Xinput.h"
 #include "exglobals.h"
+#include "exevents.h"
 
 #include "mi.h"
 
@@ -922,6 +923,9 @@ DGAStealKeyEvent(DeviceIntPtr dev, int index, int key_code, int is_down)
    if(DGAScreenKey == NULL) /* no DGA */
         return FALSE;
 
+   if (key_code < 8 || key_code > 255)
+       return FALSE;
+
    pScreenPriv = DGA_GET_SCREEN_PRIV(screenInfo.screens[index]);
 
    if(!pScreenPriv || !pScreenPriv->grabKeyboard) /* no direct mode */
@@ -1044,7 +1048,7 @@ DGAProcessKeyboardEvent (ScreenPtr pScreen, dgaEvent *de, DeviceIntPtr keybd)
     de->u.event.state = keyc->state | pointer->button->state;
 
     de->u.u.type = (IEventBase - 1) + coreEquiv; /* change to XI event */
-    UpdateDeviceState(keybd, de, 1);
+    UpdateDeviceState(keybd, (xEvent*)de, 1);
     de->u.u.type = *XDGAEventBase + coreEquiv; /* change back */
 
     /*
@@ -1091,7 +1095,7 @@ DGAProcessPointerEvent (ScreenPtr pScreen, dgaEvent *de, DeviceIntPtr mouse)
     de->u.event.state = butc->state | GetPairedDevice(mouse)->key->state;
 
     de->u.u.type = (IEventBase - 1) + coreEquiv; /* change to XI event */
-    UpdateDeviceState(mouse, de, 1);
+    UpdateDeviceState(mouse, (xEvent*)de, 1);
     de->u.u.type = *XDGAEventBase + coreEquiv; /* change back */
 
     /*

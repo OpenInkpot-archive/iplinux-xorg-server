@@ -56,6 +56,7 @@ extern Bool xf86sFlag;
 extern Bool xf86bsEnableFlag;
 extern Bool xf86bsDisableFlag;
 extern Bool xf86silkenMouseDisableFlag;
+extern Bool xf86xkbdirFlag;
 extern Bool xf86acpiDisableFlag;
 extern char *xf86LayoutName;
 extern char *xf86ScreenName;
@@ -150,9 +151,11 @@ Bool xf86PathIsSafe(const char *path);
 extern const DisplayModeRec xf86DefaultModes[];
 extern const int xf86NumDefaultModes;
 
-/* xf86DoProbe.c */
-void DoProbe(void);
+/* xf86Configure.c */
 void DoConfigure(void);
+
+/* xf86ShowOpts.c */
+void DoShowOptions(void);
 
 /* xf86Events.c */
 

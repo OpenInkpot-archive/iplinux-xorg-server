@@ -48,7 +48,6 @@
 #include <X11/extensions/xteststr.h>
 #include <X11/extensions/XI.h>
 #include <X11/extensions/XIproto.h>
-#define EXTENSION_EVENT_BASE	64
 
 #include "modinit.h"
 
@@ -397,7 +396,7 @@ ProcXTestFakeInput(client)
 
     OsBlockSignals();
     for (i = 0; i < nevents; i++)
-        mieqEnqueue(dev, events->event);
+        mieqEnqueue(dev, (events+i)->event);
     OsReleaseSignals();
 
     return client->noClientException;

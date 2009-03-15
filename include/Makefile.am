@@ -53,10 +53,14 @@ sdk_HEADERS =		\
 	windowstr.h	\
 	xkbfile.h	\
 	xkbsrv.h	\
-	xkbstr.h
+	xkbstr.h        \
+	xkbrules.h      \
+	xserver-properties.h
 
 nodist_sdk_HEADERS = xorg-server.h
 endif
 
 AM_CFLAGS = $(DIX_CFLAGS)
 
+EXTRA_DIST = 	\
+	dix-config-apple-verbatim.h

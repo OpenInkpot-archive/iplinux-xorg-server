@@ -57,9 +57,9 @@ void
 exaFinishAccessGC(GCPtr pGC)
 {
     if (pGC->fillStyle == FillTiled)
-	exaFinishAccess(&pGC->tile.pixmap->drawable, EXA_PREPARE_MASK);
+	exaFinishAccess(&pGC->tile.pixmap->drawable, EXA_PREPARE_SRC);
     if (pGC->stipple)
-        exaFinishAccess(&pGC->stipple->drawable, EXA_PREPARE_SRC);
+        exaFinishAccess(&pGC->stipple->drawable, EXA_PREPARE_MASK);
 }
 
 #if DEBUG_TRACE_FALL
@@ -351,6 +351,20 @@ ExaCheckComposite (CARD8      op,
     exaFinishAccess (pDst->pDrawable, EXA_PREPARE_DEST);
 
     REGION_UNINIT(pScreen, &region);
+}
+
+void
+ExaCheckAddTraps (PicturePtr	pPicture,
+		  INT16		x_off,
+		  INT16		y_off,
+		  int		ntrap,
+		  xTrap		*traps)
+{
+    EXA_FALLBACK(("to pict %p (%c)\n",
+		  exaDrawableLocation(pPicture->pDrawable)));
+    exaPrepareAccess(pPicture->pDrawable, EXA_PREPARE_DEST);
+    fbAddTraps (pPicture, x_off, y_off, ntrap, traps);
+    exaFinishAccess(pPicture->pDrawable, EXA_PREPARE_DEST);
 }
 
 /**

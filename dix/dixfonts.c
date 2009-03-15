@@ -98,8 +98,7 @@ static FontPathElementPtr *slept_fpes = (FontPathElementPtr *) 0;
 static FontPatternCachePtr patternCache;
 
 static int
-FontToXError(err)
-    int         err;
+FontToXError(int err)
 {
     switch (err) {
     case Successful:
@@ -1908,12 +1907,9 @@ InitFonts (void)
 {
     patternCache = MakeFontPatternCache();
 
-#ifdef BUILTIN_FONTS
     BuiltinRegisterFpeFunctions();
-#else
     FontFileRegisterFpeFunctions();
     fs_register_fpe_functions();
-#endif
 }
 
 int

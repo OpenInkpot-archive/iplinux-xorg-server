@@ -57,16 +57,11 @@ SOFTWARE.
 #include "privates.h"
 
 #define BitIsOn(ptr, bit) (((BYTE *) (ptr))[(bit)>>3] & (1 << ((bit) & 7)))
-/* If byte[i] in src is non-zero, set bit i in dst, otherwise set bit to 0 */
-#define SetBitIf(dst, src, i) \
-    (src[i]) ? (dst[i/8] |= (1 << (i % 8))) : (dst[i/8] &= ~(1 << (i % 8)));
 
 #define SameClient(obj,client) \
 	(CLIENT_BITS((obj)->resource) == (client)->clientAsMask)
 
-#define MAX_DEVICES	20
-
-#define EMASKSIZE	MAX_DEVICES + 1
+#define EMASKSIZE	MAXDEVICES + 1
 
 extern DevPrivateKey CoreDevicePrivateKey;
 
@@ -190,7 +185,11 @@ typedef struct _ValuatorClassRec {
 
 typedef struct _ButtonClassRec {
     CARD8		numButtons;
-    CARD8		buttonsDown;	/* number of buttons currently down */
+    CARD8		buttonsDown;	/* number of buttons currently down
+                                           This counts logical buttons, not
+					   physical ones, i.e if some buttons
+					   are mapped to 0, they're not counted
+					   here */
     unsigned short	state;
     Mask		motionMask;
     CARD8		down[DOWN_LENGTH];
@@ -353,17 +352,9 @@ typedef struct _XIProperty
 {
     struct _XIProperty   *next;
     Atom                  propertyName;
-    Bool                  is_pending;
-    Bool                  range;
-    Bool                  immutable;
-    Bool                  fromClient;       /* created by client or driver/server */
-    int                   num_valid;
-    INT32                 *valid_values;
-    XIPropertyValueRec    current,
-                          pending;
+    BOOL                  deletable;    /* clients can delete this prop? */
+    XIPropertyValueRec    value;
 } XIPropertyRec;
-
-
 
 typedef XIPropertyRec      *XIPropertyPtr;
 typedef XIPropertyValueRec *XIPropertyValuePtr;
@@ -373,11 +364,14 @@ typedef struct _XIPropertyHandler
 {
     struct _XIPropertyHandler* next;
     long id;
-    Bool (*SetProperty) (DeviceIntPtr dev,
-                         Atom property,
-                         XIPropertyValuePtr prop);
-    Bool (*GetProperty) (DeviceIntPtr dev,
-                         Atom property);
+    int (*SetProperty) (DeviceIntPtr dev,
+                        Atom property,
+                        XIPropertyValuePtr prop,
+                        BOOL checkonly);
+    int (*GetProperty) (DeviceIntPtr dev,
+                        Atom property);
+    int (*DeleteProperty) (DeviceIntPtr dev,
+                           Atom property);
 } XIPropertyHandler, *XIPropertyHandlerPtr;
 
 /* states for devices */
@@ -484,7 +478,6 @@ typedef struct _DeviceIntRec {
     /* Input device property handling. */
     struct {
         XIPropertyPtr   properties;
-        Bool            pendingProperties;
         XIPropertyHandlerPtr handlers; /* NULL-terminated */
     } properties;
 } DeviceIntRec;

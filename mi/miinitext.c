@@ -119,9 +119,6 @@ extern Bool noSecurityExtension;
 #ifdef RES
 extern Bool noResExtension;
 #endif
-#ifdef XEVIE
-extern Bool noXevieExtension;
-#endif
 #ifdef XF86BIGFONT
 extern Bool noXFree86BigfontExtension;
 #endif
@@ -147,7 +144,6 @@ extern Bool noPanoramiXExtension;
 #ifdef INXQUARTZ
 extern Bool noPseudoramiXExtension;
 #endif
-extern Bool noXInputExtension;
 #ifdef XSELINUX
 extern Bool noSELinuxExtension;
 #endif
@@ -266,9 +262,6 @@ extern void ResExtensionInit(INITARGS);
 #ifdef DMXEXT
 extern void DMXExtensionInit(INITARGS);
 #endif
-#ifdef XEVIE
-extern void XevieExtensionInit(INITARGS);
-#endif
 #ifdef XFIXES
 extern void XFixesExtensionInit(INITARGS);
 #endif
@@ -328,9 +321,6 @@ static ExtensionToggle ExtensionToggleList[] =
 #ifdef RES
     { "X-Resource", &noResExtension },
 #endif
-#ifdef XEVIE
-    { "XEVIE", &noXevieExtension },
-#endif
 #ifdef XF86BIGFONT
     { "XFree86-Bigfont", &noXFree86BigfontExtension },
 #endif
@@ -349,7 +339,7 @@ static ExtensionToggle ExtensionToggleList[] =
 #ifdef PANORAMIX
     { "XINERAMA", &noPanoramiXExtension },
 #endif
-    { "XInputExtension", &noXInputExtension },
+    { "XInputExtension", NULL },
 #ifdef XKB
     { "XKEYBOARD", &noXkbExtension },
 #endif
@@ -411,7 +401,7 @@ InitExtensions(int argc, char *argv[])
 #ifdef MULTIBUFFER
     if (!noMultibufferExtension) MultibufferExtensionInit();
 #endif
-    if (!noXInputExtension) XInputExtensionInit();
+    XInputExtensionInit();
 #ifdef XTEST
     if (!noTestExtensions) XTestExtensionInit();
 #endif
@@ -475,9 +465,6 @@ InitExtensions(int argc, char *argv[])
 #ifdef DMXEXT
     DMXExtensionInit(); /* server-specific extension, cannot be disabled */
 #endif
-#ifdef XEVIE
-    if (!noXevieExtension) XevieExtensionInit();
-#endif
 #ifdef COMPOSITE
     if (!noCompositeExtension) CompositeExtensionInit();
 #endif
@@ -486,15 +473,10 @@ InitExtensions(int argc, char *argv[])
 #endif
 
 #ifdef GLXEXT
-    GlxPushProvider(&__glXDRISWRastProvider);
+    if (serverGeneration == 1)
+	GlxPushProvider(&__glXDRISWRastProvider);
     if (!noGlxExtension) GlxExtensionInit();
 #endif
-}
-
-void
-InitVisualWrap()
-{
-    miResetInitVisuals();
 }
 
 #else /* XFree86LOADER */
@@ -505,7 +487,7 @@ static ExtensionModule staticExtensions[] = {
 #ifdef MITSHM
     { ShmExtensionInit, SHMNAME, &noMITShmExtension, NULL, NULL },
 #endif
-    { XInputExtensionInit, "XInputExtension", &noXInputExtension, NULL, NULL },
+    { XInputExtensionInit, "XInputExtension", NULL, NULL, NULL },
 #ifdef XTEST
     { XTestExtensionInit, XTestExtensionName, &noTestExtensions, NULL, NULL },
 #endif
@@ -540,9 +522,6 @@ static ExtensionModule staticExtensions[] = {
 #ifdef DAMAGE
     { DamageExtensionInit, "DAMAGE", &noDamageExtension, NULL },
 #endif
-#ifdef XEVIE
-    { XevieExtensionInit, "XEVIE", &noXevieExtension, NULL },
-#endif 
     { NULL, NULL, NULL, NULL, NULL }
 };
     
@@ -572,25 +551,6 @@ InitExtensions(int argc, char *argv[])
 	    (ext->initFunc)();
 	}
     }
-}
-
-static void (*__miHookInitVisualsFunction)(miInitVisualsProcPtr *);
-
-void
-InitVisualWrap()
-{
-    miResetInitVisuals();
-    if (__miHookInitVisualsFunction)
-	(*__miHookInitVisualsFunction)(&miInitVisualsProc);
-}
-
-_X_EXPORT void
-miHookInitVisuals(void (**old)(miInitVisualsProcPtr *),
-		  void (*new)(miInitVisualsProcPtr *))
-{
-    if (old)
-	*old = __miHookInitVisualsFunction;
-    __miHookInitVisualsFunction = new;
 }
 
 #endif /* XFree86LOADER */

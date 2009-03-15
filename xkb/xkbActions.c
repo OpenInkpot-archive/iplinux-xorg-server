@@ -595,9 +595,6 @@ _XkbFilterPointerBtn(	XkbSrvInfoPtr	xkbi,
 			unsigned	keycode,
 			XkbAction *	pAction)
 {
-    if (xkbi->device == inputInfo.keyboard)
-        return 0;
-
     if (filter->keycode==0) {		/* initial press */
 	int	button= pAction->btn.button;
 
@@ -617,7 +614,7 @@ _XkbFilterPointerBtn(	XkbSrvInfoPtr	xkbi,
 			((pAction->btn.flags&XkbSA_LockNoLock)==0)) {
 		    xkbi->lockedPtrButtons|= (1<<button);
 		    AccessXCancelRepeatKey(xkbi,keycode);
-		    XkbDDXFakePointerButton(ButtonPress,button);
+		    XkbDDXFakeDeviceButton(xkbi->device, 1, button);
 		    filter->upAction.type= XkbSA_NoAction;
 		}
 		break;
@@ -628,12 +625,12 @@ _XkbFilterPointerBtn(	XkbSrvInfoPtr	xkbi,
 		    if (pAction->btn.count>0) {
 			nClicks= pAction->btn.count;
 			for (i=0;i<nClicks;i++) {
-			    XkbDDXFakePointerButton(ButtonPress,button);
-			    XkbDDXFakePointerButton(ButtonRelease,button);
+			    XkbDDXFakeDeviceButton(xkbi->device, 1, button);
+			    XkbDDXFakeDeviceButton(xkbi->device, 0, button);
 			}
 			filter->upAction.type= XkbSA_NoAction;
 		    }
-		    else XkbDDXFakePointerButton(ButtonPress,button);
+		    else XkbDDXFakeDeviceButton(xkbi->device, 1, button);
 		}
 		break;
 	    case XkbSA_SetPtrDflt:
@@ -689,7 +686,7 @@ _XkbFilterPointerBtn(	XkbSrvInfoPtr	xkbi,
 		}
 		xkbi->lockedPtrButtons&= ~(1<<button);
 	    case XkbSA_PtrBtn:
-		XkbDDXFakePointerButton(ButtonRelease,button);
+		XkbDDXFakeDeviceButton(xkbi->device, 0, button);
 		break;
 	}
 	filter->active = 0;
@@ -1046,7 +1043,7 @@ int		button;
 	switch (pAction->type) {
 	    case XkbSA_LockDeviceBtn:
 		if ((pAction->devbtn.flags&XkbSA_LockNoLock)||
-		    (dev->button->down[button]))
+		    BitIsOn(dev->button->down, button))
 		    return 0;
 		XkbDDXFakeDeviceButton(dev,True,button);
 		filter->upAction.type= XkbSA_NoAction;
@@ -1078,7 +1075,7 @@ int		button;
 	switch (filter->upAction.type) {
 	    case XkbSA_LockDeviceBtn:
 		if ((filter->upAction.devbtn.flags&XkbSA_LockNoUnlock)||
-		    ((dev->button->down[button])==0))
+		    !BitIsOn(dev->button->down, button))
 		    return 0;
 		XkbDDXFakeDeviceButton(dev,False,button);
 		break;

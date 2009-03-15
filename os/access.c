@@ -80,7 +80,7 @@ SOFTWARE.
 #include <sys/ioctl.h>
 #include <ctype.h>
 
-#if defined(TCPCONN) || defined(STREAMSCONN) || defined(ISC) || defined(__SCO__)
+#if defined(TCPCONN) || defined(STREAMSCONN) || defined(__SCO__)
 #include <netinet/in.h>
 #endif /* TCPCONN || STREAMSCONN || ISC || __SCO__ */
 #ifdef DNETCONN
@@ -100,10 +100,6 @@ SOFTWARE.
 #endif
 #if defined(SYSV) &&  defined(__i386__)
 # include <sys/stream.h>
-# ifdef ISC
-#  include <sys/stropts.h>
-#  include <sys/sioctl.h>
-# endif /* ISC */
 #endif
 #ifdef __GNU__
 #undef SIOCGIFCONF
@@ -283,7 +279,7 @@ AccessUsingXdmcp (void)
 }
 
 
-#if ( defined(SVR4) && !defined(SCO325) && !defined(sun) || defined(ISC)) && defined(SIOCGIFCONF) && !defined(USE_SIOCGLIFCONF)
+#if  defined(SVR4) && !defined(SCO325) && !defined(sun)  && defined(SIOCGIFCONF) && !defined(USE_SIOCGLIFCONF)
 
 /* Deal with different SIOCGIFCONF ioctl semantics on these OSs */
 
@@ -300,17 +296,6 @@ ifioctl (int fd, int cmd, char *arg)
     {
 	ioc.ic_len = ((struct ifconf *) arg)->ifc_len;
 	ioc.ic_dp = ((struct ifconf *) arg)->ifc_buf;
-#ifdef ISC
-	/* SIOCGIFCONF is somewhat brain damaged on ISC. The argument
-	 * buffer must contain the ifconf structure as header. Ifc_req
-	 * is also not a pointer but a one element array of ifreq
-	 * structures. On return this array is extended by enough
-	 * ifreq fields to hold all interfaces. The return buffer length
-	 * is placed in the buffer header.
-	 */
-        ((struct ifconf *) ioc.ic_dp)->ifc_len =
-                                         ioc.ic_len - sizeof(struct ifconf);
-#endif
     }
     else
     {
@@ -321,14 +306,6 @@ ifioctl (int fd, int cmd, char *arg)
     if (ret >= 0 && cmd == SIOCGIFCONF)
 #ifdef SVR4
 	((struct ifconf *) arg)->ifc_len = ioc.ic_len;
-#endif
-#ifdef ISC
-    {
-	((struct ifconf *) arg)->ifc_len =
-				 ((struct ifconf *)ioc.ic_dp)->ifc_len;
-	((struct ifconf *) arg)->ifc_buf = 
-			(caddr_t)((struct ifconf *)ioc.ic_dp)->ifc_req;
-    }
 #endif
     return(ret);
 }
@@ -503,7 +480,7 @@ DefineLocalHost:
 #define ifraddr_size(a) (sizeof (a))
 #endif
 
-#if defined(DEF_SELF_DEBUG) || (defined(IPv6) && defined(AF_INET6))
+#if defined(IPv6) && defined(AF_INET6)
 #include <arpa/inet.h>
 #endif
 
@@ -609,11 +586,7 @@ DefineSelf (int fd)
     ifc.ifc_buf = bufptr;
 
 #define IFC_IOCTL_REQ SIOCGIFCONF
-#ifdef ISC
-#define IFC_IFC_REQ (struct ifreq *) ifc.ifc_buf
-#else
 #define IFC_IFC_REQ ifc.ifc_req
-#endif /* ISC */
 #define IFC_IFC_LEN ifc.ifc_len
 #define IFR_IFR_ADDR ifr->ifr_addr
 #define IFR_IFR_NAME ifr->ifr_name
@@ -643,19 +616,6 @@ DefineSelf (int fd)
 	if (family == FamilyInternet6) 
 	    in6_fillscopeid((struct sockaddr_in6 *)&IFR_IFR_ADDR);
 #endif
-#ifdef DEF_SELF_DEBUG
-	if (family == FamilyInternet) 
-	    ErrorF("Xserver: DefineSelf(): ifname = %s, addr = %d.%d.%d.%d\n",
-		   IFR_IFR_NAME, addr[0], addr[1], addr[2], addr[3]);
-#if defined(IPv6) && defined(AF_INET6)
-	else if (family == FamilyInternet6) {
-	    char cp[INET6_ADDRSTRLEN] = "";
-	    inet_ntop(AF_INET6, addr, cp, sizeof(cp));
-	    ErrorF("Xserver: DefineSelf(): ifname = %s, addr = %s\n",
-		   IFR_IFR_NAME,  cp);
-	}
-#endif
-#endif /* DEF_SELF_DEBUG */
         for (host = selfhosts;
  	     host && !addrEqual (family, addr, len, host);
 	     host = host->next)
@@ -765,11 +725,6 @@ DefineSelf (int fd)
 		    continue;
 	    }
 #endif /* SIOCGIFBRDADDR */
-#ifdef DEF_SELF_DEBUG
-	    ErrorF("Xserver: DefineSelf(): ifname = %s, baddr = %s\n",
-		   IFR_IFR_NAME,
-	           inet_ntoa(((struct sockaddr_in *) &broad_addr)->sin_addr));
-#endif /* DEF_SELF_DEBUG */
 	    XdmcpRegisterBroadcastAddress ((struct sockaddr_in *) &broad_addr);
 	}
 #endif /* XDMCP */
@@ -797,20 +752,6 @@ DefineSelf (int fd)
 	    in6_fillscopeid((struct sockaddr_in6 *)ifr->ifa_addr);
 #endif
 
-#ifdef DEF_SELF_DEBUG
-	if (family == FamilyInternet) 
-	    ErrorF("Xserver: DefineSelf(): ifname = %s, addr = %d.%d.%d.%d\n",
-		   ifr->ifa_name, addr[0], addr[1], addr[2], addr[3]);
-#if defined(IPv6) && defined(AF_INET6)
-	else if (family == FamilyInternet6) {
-		char cp[INET6_ADDRSTRLEN];
-
-		inet_ntop(AF_INET6, addr, cp, sizeof(cp));
-		ErrorF("Xserver: DefineSelf(): ifname = %s addr = %s\n",
-		    ifr->ifa_name, cp);
-	}
-#endif
-#endif /* DEF_SELF_DEBUG */
 	for (host = selfhosts; 
 	     host != NULL && !addrEqual(family, addr, len, host);
 	     host = host->next) 
@@ -875,11 +816,6 @@ DefineSelf (int fd)
 		broad_addr = *ifr->ifa_broadaddr;
 	    else
 		continue;
-#ifdef DEF_SELF_DEBUG
-	    ErrorF("Xserver: DefineSelf(): ifname = %s, baddr = %s\n",
-		   ifr->ifa_name,
-	           inet_ntoa(((struct sockaddr_in *) &broad_addr)->sin_addr));
-#endif /* DEF_SELF_DEBUG */
 	    XdmcpRegisterBroadcastAddress((struct sockaddr_in *)
 					  &broad_addr);
 	}

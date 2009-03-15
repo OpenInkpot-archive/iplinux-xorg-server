@@ -1,7 +1,6 @@
 /* x-selection.h -- proxies between NSPasteboard and X11 selections
-   $Id: x-selection.h,v 1.2 2002-12-13 00:21:00 jharper Exp $
 
-   Copyright (c) 2002 Apple Computer, Inc. All rights reserved.
+   Copyright (c) 2002, 2008 Apple Computer, Inc. All rights reserved.
 
    Permission is hereby granted, free of charge, to any person
    obtaining a copy of this software and associated documentation files
@@ -26,12 +25,16 @@
    Except as contained in this notice, the name(s) of the above
    copyright holders shall not be used in advertising or otherwise to
    promote the sale, use or other dealings in this Software without
-   prior written authorization. */
+   prior written authorization.
+*/
 
 #ifndef X_SELECTION_H
 #define X_SELECTION_H 1
 
 #include "pbproxy.h"
+
+#include <X11/extensions/Xfixes.h>
+
 #include <AppKit/NSPasteboard.h>
 
 /* This stores image data or text. */
@@ -53,10 +56,6 @@ struct atom_list {
 
     /* The unmapped window we use for fetching selections. */
     Window _selection_window;
-
-    /* Cached general pasteboard and array of types we can handle. */
-    NSPasteboard *_pasteboard;
-    NSArray *_known_types;
 
     /* Last time we declared anything on the pasteboard. */
     int _my_last_change;
@@ -99,11 +98,19 @@ struct atom_list {
 - (void) request_event:(XSelectionRequestEvent *)e;
 - (void) notify_event:(XSelectionEvent *)e;
 - (void) property_event:(XPropertyEvent *)e;
+- (void) xfixes_selection_notify:(XFixesSelectionNotifyEvent *)e;
 - (void) handle_selection:(Atom)selection type:(Atom)type propdata:(struct propdata *)pdata;
 - (void) claim_clipboard;
-- (void) set_clipboard_manager;
+- (BOOL) set_clipboard_manager_status:(BOOL)value;
 - (void) own_clipboard;
 - (void) copy_completed:(Atom)selection;
+
+- (void) reload_preferences;
+- (BOOL) is_active;
+- (void) send_none:(XSelectionRequestEvent *)e;
 @end
+
+/* main.m */
+extern x_selection *_selection_object;
 
 #endif /* X_SELECTION_H */

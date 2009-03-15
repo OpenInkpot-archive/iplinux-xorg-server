@@ -371,7 +371,7 @@ exaTryDriverCompositeRects(CARD8	       op,
     }
     
     exaGetDrawableDeltas (pDst->pDrawable, pDstPix, &dst_off_x, &dst_off_y);
-	
+
     pixmaps[0].as_dst = TRUE;
     pixmaps[0].as_src = exaOpReadsDestination(op);
     pixmaps[0].pPix = pDstPix;
@@ -406,24 +406,24 @@ exaTryDriverCompositeRects(CARD8	       op,
 	INT16 yDst = rects->yDst + pDst->pDrawable->y;
 	INT16 xSrc = rects->xSrc + pSrc->pDrawable->x;
 	INT16 ySrc = rects->ySrc + pSrc->pDrawable->y;
-	
+
 	RegionRec region;
 	BoxPtr pbox;
 	int nbox;
-	
+
 	if (!miComputeCompositeRegion (&region, pSrc, NULL, pDst,
 				       xSrc, ySrc, 0, 0, xDst, yDst,
 				       rects->width, rects->height))
 	    goto next_rect;
-	
+
 	REGION_TRANSLATE(pScreen, &region, dst_off_x, dst_off_y);
-	
+
 	nbox = REGION_NUM_RECTS(&region);
 	pbox = REGION_RECTS(&region);
 
 	xSrc = xSrc + src_off_x - xDst - dst_off_x;
 	ySrc = ySrc + src_off_y - yDst - dst_off_y;
-	
+
 	while (nbox--)
 	{
 	    (*pExaScr->info->Composite) (pDstPix,
@@ -442,10 +442,10 @@ exaTryDriverCompositeRects(CARD8	       op,
 
 	rects++;
     }
-    
+
     (*pExaScr->info->DoneComposite) (pDstPix);
     exaMarkSync(pDst->pDrawable->pScreen);
-	
+
     return 1;
 }
 
@@ -492,17 +492,17 @@ exaCompositeRects(CARD8	              op,
 	r = rects;
 	while (n--) {
 	    int rect_x2 = r->xDst + r->width;
-	    int rect_y2 = r->yDst + r->width;
+	    int rect_y2 = r->yDst + r->height;
 
 	    if (r->xDst < x1) x1 = r->xDst;
-	    if (r->xDst < y1) y1 = r->xDst;
+	    if (r->yDst < y1) y1 = r->yDst;
 	    if (rect_x2 > x2) x2 = rect_x2;
 	    if (rect_y2 > y2) y2 = rect_y2;
 
 	    r++;
 	}
 
-	if (x2 <= x1 && y2 <= y1)
+	if (x2 <= x1 || y2 <= y1)
 	    return;
 
 	box.x1 = x1;
@@ -911,6 +911,12 @@ exaComposite(CARD8	op,
 
 		if (ret)
 		    goto done;
+
+		/* Let's be correct and restore the variables to their original state. */
+		xDst -= pDst->pDrawable->x;
+		yDst -= pDst->pDrawable->y;
+		xSrc -= pSrc->pDrawable->x;
+		ySrc -= pSrc->pDrawable->y;
 	    }
 	}
     }
@@ -1046,51 +1052,13 @@ exaTrapezoids (CARD8 op, PicturePtr pSrc, PicturePtr pDst,
     ScreenPtr		pScreen = pDst->pDrawable->pScreen;
     PictureScreenPtr    ps = GetPictureScreen(pScreen);
     BoxRec		bounds;
-    Bool		direct = op == PictOpAdd && miIsSolidAlpha (pSrc);
 
-    if (maskFormat || direct) {
+    if (maskFormat) {
 	miTrapezoidBounds (ntrap, traps, &bounds);
 
 	if (bounds.y1 >= bounds.y2 || bounds.x1 >= bounds.x2)
 	    return;
-    }
 
-    /*
-     * Check for solid alpha add
-     */
-    if (direct)
-    {
-	DrawablePtr pDraw = pDst->pDrawable;
-	PixmapPtr pixmap = exaGetDrawablePixmap (pDraw);
-	ExaPixmapPriv (pixmap);
-
-	/* Damage manually, because Trapezoids expects to hit Composite normally. */
-	/* Composite is wrapped by damage, but Trapezoids isn't. */
-	if (pExaPixmap->pDamage) {
-	    RegionRec migration;
-
-	    bounds.x1 += pDraw->x;
-	    bounds.y1 += pDraw->y;
-	    bounds.x2 += pDraw->x;
-	    bounds.y2 += pDraw->y;
-
-	    REGION_INIT(pScreen, &migration, &bounds, 1);
-	    DamageRegionAppend(pDraw, &migration);
-	    REGION_UNINIT(pScreen, &migration);
-	}
-
-	exaPrepareAccess(pDraw, EXA_PREPARE_DEST);
-
-	for (; ntrap; ntrap--, traps++)
-	    (*ps->RasterizeTrapezoid) (pDst, traps, 0, 0);
-
-	exaFinishAccess(pDraw, EXA_PREPARE_DEST);
-
-	if (pExaPixmap->pDamage)
-	    DamageRegionProcessPending(pDraw);
-    }
-    else if (maskFormat)
-    {
 	PicturePtr	pPicture;
 	INT16		xDst, yDst;
 	INT16		xRel, yRel;
@@ -1117,9 +1085,7 @@ exaTrapezoids (CARD8 op, PicturePtr pSrc, PicturePtr pDst,
 			  bounds.x2 - bounds.x1,
 			  bounds.y2 - bounds.y1);
 	FreePicture (pPicture, 0);
-    }
-    else
-    {
+    } else {
 	if (pDst->polyEdge == PolyEdgeSharp)
 	    maskFormat = PictureMatchFormat (pScreen, 1, PICT_a1);
 	else
@@ -1150,52 +1116,17 @@ exaTriangles (CARD8 op, PicturePtr pSrc, PicturePtr pDst,
     ScreenPtr		pScreen = pDst->pDrawable->pScreen;
     PictureScreenPtr    ps = GetPictureScreen(pScreen);
     BoxRec		bounds;
-    Bool		direct = op == PictOpAdd && miIsSolidAlpha (pSrc);
 
-    if (maskFormat || direct) {
+    if (maskFormat) {
 	miTriangleBounds (ntri, tris, &bounds);
 
 	if (bounds.y1 >= bounds.y2 || bounds.x1 >= bounds.x2)
 	    return;
-    }
 
-    /*
-     * Check for solid alpha add
-     */
-    if (direct)
-    {
-	DrawablePtr pDraw = pDst->pDrawable;
-	PixmapPtr pixmap = exaGetDrawablePixmap (pDraw);
-	ExaPixmapPriv (pixmap);
-
-	/* Damage manually, because Triangles expects to hit Composite normally. */
-	/* Composite is wrapped by damage, but Triangles isn't. */
-	if (pExaPixmap->pDamage) {
-	    RegionRec migration;
-
-	    bounds.x1 += pDraw->x;
-	    bounds.y1 += pDraw->y;
-	    bounds.x2 += pDraw->x;
-	    bounds.y2 += pDraw->y;
-
-	    REGION_INIT(pScreen, &migration, &bounds, 1);
-	    DamageRegionAppend(pDraw, &migration);
-	    REGION_UNINIT(pScreen, &migration);
-	}
-
-	exaPrepareAccess(pDraw, EXA_PREPARE_DEST);
-	(*ps->AddTriangles) (pDst, 0, 0, ntri, tris);
-	exaFinishAccess(pDraw, EXA_PREPARE_DEST);
-
-	if (pExaPixmap->pDamage)
-	    DamageRegionProcessPending(pDraw);
-    }
-    else if (maskFormat)
-    {
 	PicturePtr	pPicture;
 	INT16		xDst, yDst;
 	INT16		xRel, yRel;
-	
+
 	xDst = tris[0].p1.x >> 16;
 	yDst = tris[0].p1.y >> 16;
 
@@ -1208,21 +1139,19 @@ exaTriangles (CARD8 op, PicturePtr pSrc, PicturePtr pDst,
 	exaPrepareAccess(pPicture->pDrawable, EXA_PREPARE_DEST);
 	(*ps->AddTriangles) (pPicture, -bounds.x1, -bounds.y1, ntri, tris);
 	exaFinishAccess(pPicture->pDrawable, EXA_PREPARE_DEST);
-	
+
 	xRel = bounds.x1 + xSrc - xDst;
 	yRel = bounds.y1 + ySrc - yDst;
 	CompositePicture (op, pSrc, pPicture, pDst,
 			  xRel, yRel, 0, 0, bounds.x1, bounds.y1,
 			  bounds.x2 - bounds.x1, bounds.y2 - bounds.y1);
 	FreePicture (pPicture, 0);
-    }
-    else
-    {
+    } else {
 	if (pDst->polyEdge == PolyEdgeSharp)
 	    maskFormat = PictureMatchFormat (pScreen, 1, PICT_a1);
 	else
 	    maskFormat = PictureMatchFormat (pScreen, 8, PICT_a8);
-	
+
 	for (; ntri; ntri--, tris++)
 	    exaTriangles (op, pSrc, pDst, maskFormat, xSrc, ySrc, 1, tris);
     }

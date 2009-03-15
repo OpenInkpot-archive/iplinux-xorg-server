@@ -602,8 +602,8 @@ AuthAudit (ClientPtr client, Bool letin,
     
 #ifdef XSERVER_DTRACE
     XSERVER_CLIENT_AUTH(client->index, addr, client_pid, client_zid);
-    if (auditTrailLevel > 1) {
 #endif
+    if (auditTrailLevel > 1) {
       if (proto_n)
 	AuditF("client %d %s from %s%s\n  Auth name: %.*s ID: %d\n", 
 	       client->index, letin ? "connected" : "rejected", addr,
@@ -613,9 +613,7 @@ AuthAudit (ClientPtr client, Bool letin,
 	       client->index, letin ? "connected" : "rejected", addr,
 	       client_uid_string);
 
-#ifdef XSERVER_DTRACE
     }
-#endif	
 }
 
 XID
@@ -663,14 +661,9 @@ ClientAuthorized(ClientPtr client,
     priv = (OsCommPtr)client->osPrivate;
     trans_conn = priv->trans_conn;
 
-/* Make it compile for now, remove this once we have a new xtrans release and are depending on it in configure.ac */
-#ifndef TRANS_NOXAUTH
-#define TRANS_NOXAUTH 0
-#endif
-
     /* Allow any client to connect without authorization on a launchd socket,
        because it is securely created -- this prevents a race condition on launch */
-    if(trans_conn->flags | TRANS_NOXAUTH) {
+    if(trans_conn->flags & TRANS_NOXAUTH) {
         auth_id = (XID) 0L;
     } else {
         auth_id = CheckAuthorization (proto_n, auth_proto, string_n, auth_string, client, &reason);
@@ -1218,7 +1211,7 @@ AttendClient (ClientPtr client)
 
 /* make client impervious to grabs; assume only executing client calls this */
 
-_X_EXPORT void
+void
 MakeClientGrabImpervious(ClientPtr client)
 {
     OsCommPtr oc = (OsCommPtr)client->osPrivate;
@@ -1237,7 +1230,7 @@ MakeClientGrabImpervious(ClientPtr client)
 
 /* make client pervious to grabs; assume only executing client calls this */
 
-_X_EXPORT void
+void
 MakeClientGrabPervious(ClientPtr client)
 {
     OsCommPtr oc = (OsCommPtr)client->osPrivate;

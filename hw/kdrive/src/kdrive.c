@@ -76,7 +76,7 @@ unsigned long       kdVideoTestTime;
 Bool		    kdEmulateMiddleButton;
 Bool		    kdRawPointerCoordinates;
 Bool		    kdDisableZaphod;
-Bool                kdDontZap;
+Bool                kdAllowZap;
 Bool		    kdEnabled;
 int		    kdSubpixelOrder;
 int		    kdVirtualTerminal = -1;
@@ -567,7 +567,7 @@ KdUseMsg (void)
     ErrorF("-videoTest       Start the server, pause momentarily and exit\n");
     ErrorF("-origin X,Y      Locates the next screen in the the virtual screen (Xinerama)\n");
     ErrorF("-switchCmd       Command to execute on vt switch\n");
-    ErrorF("-nozap           Don't terminate server on Ctrl+Alt+Backspace\n");
+    ErrorF("-zap             Terminate server on Ctrl+Alt+Backspace\n");
     ErrorF("vtxx             Use virtual terminal xx instead of the next available\n");
 #ifdef PSEUDO8
     p8UseMsg ();
@@ -613,9 +613,9 @@ KdProcessArgument (int argc, char **argv, int i)
 	kdDisableZaphod = TRUE;
 	return 1;
     }
-    if (!strcmp (argv[i], "-nozap"))
+    if (!strcmp (argv[i], "-zap"))
     {
-	kdDontZap = TRUE;
+	kdAllowZap = TRUE;
 	return 1;
     }
     if (!strcmp (argv[i], "-3button"))
@@ -739,10 +739,9 @@ KdAllocatePrivates (ScreenPtr pScreen)
     if (kdGeneration != serverGeneration)
 	kdGeneration = serverGeneration;
 
-    pScreenPriv = (KdPrivScreenPtr) xalloc(sizeof (*pScreenPriv));
+    pScreenPriv = xcalloc(1, sizeof (*pScreenPriv));
     if (!pScreenPriv)
 	return FALSE;
-    memset (pScreenPriv, '\0', sizeof (KdPrivScreenRec));
     KdSetScreenPriv (pScreen, pScreenPriv);
     return TRUE;
 }

@@ -73,7 +73,7 @@ extern int ffs(int);
  *     set them in the destination with SetSpans
  * We let SetSpans worry about clipping to the destination.
  */
-_X_EXPORT RegionPtr
+RegionPtr
 miCopyArea(DrawablePtr  pSrcDrawable,
            DrawablePtr  pDstDrawable,
            GCPtr        pGC,
@@ -317,11 +317,10 @@ miGetPlane(
     sy += pDraw->y;
     widthInBytes = BitmapBytePad(w);
     if(!result)
-        result = (MiBits *)xalloc(h * widthInBytes);
+        result = xcalloc(h, widthInBytes);
     if (!result)
 	return (MiBits *)NULL;
     bitsPerPixel = pDraw->bitsPerPixel;
-    bzero((char *)result, h * widthInBytes);
     pOut = (OUT_TYPE *) result;
     if(bitsPerPixel == 1)
     {
@@ -549,7 +548,7 @@ miOpqStipDrawable(DrawablePtr pDraw, GCPtr pGC, RegionPtr prgnSrc,
  * build a source clip
  * Use the bitmap we've built up as a Stipple for the destination 
  */
-_X_EXPORT RegionPtr
+RegionPtr
 miCopyPlane( DrawablePtr pSrcDrawable,
              DrawablePtr pDstDrawable,
              GCPtr pGC,

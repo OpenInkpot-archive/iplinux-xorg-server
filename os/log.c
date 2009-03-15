@@ -401,6 +401,7 @@ void AbortServer(void) __attribute__((noreturn));
 void
 AbortServer(void)
 {
+    CloseWellKnownConnections();
     OsCleanup(TRUE);
     CloseDownDevices();
     AbortDDX();
@@ -571,9 +572,10 @@ Error(char *str)
 	    return;
 	sprintf(err, "%s: ", str);
 	strcat(err, strerror(saveErrno));
-	LogWrite(-1, err);
+	LogWrite(-1, "%s", err);
+	free(err);
     } else
-	LogWrite(-1, strerror(saveErrno));
+	LogWrite(-1, "%s", strerror(saveErrno));
 }
 
 void

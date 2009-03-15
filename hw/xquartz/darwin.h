@@ -82,18 +82,12 @@ extern int              darwinMouseAccelChange;
 extern int              darwinFakeButtons;
 extern int              darwinFakeMouse2Mask;
 extern int              darwinFakeMouse3Mask;
-extern int              darwinAppKitModMask;
-extern int              windowItemModMask;
+extern unsigned int     darwinAppKitModMask;
+extern unsigned int     windowItemModMask;
 extern int              darwinSyncKeymap;
 extern unsigned int     darwinDesiredWidth, darwinDesiredHeight;
 extern int              darwinDesiredDepth;
 extern int              darwinDesiredRefresh;
-
-extern int              pbproxy_active;
-extern int              pbproxy_primary_on_grab;
-extern int              pbproxy_clipboard_to_pasteboard;
-extern int              pbproxy_pasteboard_to_primary;
-extern int              pbproxy_pasteboard_to_clipboard;
 
 // location of X11's (0,0) point in global screen coordinates
 extern int              darwinMainScreenX;

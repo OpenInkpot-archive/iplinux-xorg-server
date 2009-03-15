@@ -51,35 +51,7 @@ miDestroyGC(GCPtr pGC)
 	(*pGC->pScreen->DestroyPixmap) (pGC->pRotatedPixmap);
     if (pGC->freeCompClip)
 	REGION_DESTROY(pGC->pScreen, pGC->pCompositeClip);
-    miDestroyGCOps(pGC->ops);
 }
-
-/*
- * create a private op array for a gc
- */
-
-_X_EXPORT GCOpsPtr
-miCreateGCOps(GCOpsPtr prototype)
-{
-    GCOpsPtr        ret;
-
-     /* XXX */ Must_have_memory = TRUE;
-    ret = (GCOpsPtr) xalloc(sizeof(GCOps));
-     /* XXX */ Must_have_memory = FALSE;
-    if (!ret)
-	return 0;
-    *ret = *prototype;
-    ret->devPrivate.val = 1;
-    return ret;
-}
-
-_X_EXPORT void
-miDestroyGCOps(GCOpsPtr ops)
-{
-    if (ops->devPrivate.val)
-	xfree(ops);
-}
-
 
 _X_EXPORT void
 miDestroyClip(GCPtr pGC)

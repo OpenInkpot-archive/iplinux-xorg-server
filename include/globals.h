@@ -19,7 +19,6 @@ extern char *defaultFontPath;
 extern int monitorResolution;
 extern int defaultColorVisualClass;
 
-extern Bool Must_have_memory;
 extern WindowPtr WindowTable[MAXSCREENS];
 extern int GrabInProgress;
 extern Bool noTestExtensions;
@@ -95,10 +94,6 @@ extern Bool noSecurityExtension;
 extern Bool noResExtension;
 #endif
 
-#ifdef XEVIE
-extern Bool noXevieExtension;
-#endif
-
 #ifdef XF86BIGFONT
 extern Bool noXFree86BigfontExtension;
 #endif
@@ -127,9 +122,6 @@ extern Bool noXkbExtension;
 #ifdef PANORAMIX
 extern Bool noPanoramiXExtension;
 #endif
-
-extern Bool noXInputExtension;
-
 
 #ifdef XSELINUX
 extern Bool noSELinuxExtension;

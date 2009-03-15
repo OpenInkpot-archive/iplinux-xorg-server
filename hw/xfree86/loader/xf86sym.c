@@ -64,7 +64,7 @@
 #include "xf86_OSproc.h"
 #include "xf86Parser.h"
 #include "xf86Config.h"
-# include "xf86Xinput.h"
+#include "xf86Xinput.h"
 #ifdef XV
 #include "xf86xv.h"
 #include "xf86xvmc.h"
@@ -244,8 +244,6 @@ _X_HIDDEN void *xfree86LookupTab[] = {
     SYMFUNC(xf86ReadBIOS)
     SYMFUNC(xf86EnableIO)
     SYMFUNC(xf86DisableIO)
-    SYMFUNC(xf86DisableInterrupts)
-    SYMFUNC(xf86EnableInterrupts)
     SYMFUNC(xf86LinearVidMem)
     SYMFUNC(xf86CheckMTRR)
     SYMFUNC(xf86MapVidMem)
@@ -253,7 +251,6 @@ _X_HIDDEN void *xfree86LookupTab[] = {
     SYMFUNC(xf86MapReadSideEffects)
     SYMFUNC(xf86MapDomainMemory)
     SYMFUNC(xf86UDelay)
-    SYMFUNC(xf86IODelay)
     SYMFUNC(xf86SlowBcopy)
     SYMFUNC(xf86SetReallySlowBcopy)
 #ifdef __alpha__
@@ -296,21 +293,14 @@ _X_HIDDEN void *xfree86LookupTab[] = {
     /* xf86Bus.c */
     SYMFUNC(xf86CheckPciSlot)
     SYMFUNC(xf86ClaimPciSlot)
-    SYMFUNC(xf86ClaimIsaSlot)
     SYMFUNC(xf86ClaimFbSlot)
     SYMFUNC(xf86ClaimNoSlot)
     SYMFUNC(xf86ParsePciBusString)
     SYMFUNC(xf86ComparePciBusString)
     SYMFUNC(xf86FormatPciBusNumber)
-    SYMFUNC(xf86ParseIsaBusString)
     SYMFUNC(xf86EnableAccess)
     SYMFUNC(xf86SetCurrentAccess)
     SYMFUNC(xf86IsPrimaryPci)
-    SYMFUNC(xf86IsPrimaryIsa)
-    SYMFUNC(xf86PrintResList)
-    SYMFUNC(xf86AddResToList)
-    SYMFUNC(xf86JoinResLists)
-    SYMFUNC(xf86DupResList)
     SYMFUNC(xf86FreeResList)
     SYMFUNC(xf86ClaimFixedResources)
     SYMFUNC(xf86AddEntityToScreen)
@@ -320,19 +310,14 @@ _X_HIDDEN void *xfree86LookupTab[] = {
     SYMFUNC(xf86GetNumEntityInstances)
     SYMFUNC(xf86GetDevFromEntity)
     SYMFUNC(xf86GetPciInfoForEntity)
-    SYMFUNC(xf86SetEntityFuncs)
-    SYMFUNC(xf86DeallocateResourcesForEntity)
     SYMFUNC(xf86RegisterResources)
     SYMFUNC(xf86CheckPciMemBase)
     SYMFUNC(xf86SetAccessFuncs)
     SYMFUNC(xf86IsEntityPrimary)
     SYMFUNC(xf86SetOperatingState)
-    SYMFUNC(xf86EnterServerState)
-    SYMFUNC(xf86ChkConflict)
     SYMFUNC(xf86FindScreenForEntity)
     SYMFUNC(xf86RegisterStateChangeNotificationCallback)
     SYMFUNC(xf86DeregisterStateChangeNotificationCallback)
-    SYMFUNC(xf86NoSharedResources)
     /* Shared Accel Accessor Functions */
     SYMFUNC(xf86GetLastScrnFlag)
     SYMFUNC(xf86SetLastScrnFlag)
@@ -345,9 +330,6 @@ _X_HIDDEN void *xfree86LookupTab[] = {
     SYMFUNC(xf86ClearPrimInitDone)
     SYMFUNC(xf86AllocateEntityPrivateIndex)
     SYMFUNC(xf86GetEntityPrivate)
-
-    /* xf86Configure.c */
-    SYMFUNC(xf86AddDeviceToConfigure)
 
     /* xf86Cursor.c */
     SYMFUNC(xf86GetPointerScreenFuncs)
@@ -423,7 +405,6 @@ _X_HIDDEN void *xfree86LookupTab[] = {
     SYMFUNC(xf86PrintChipsets)
     SYMFUNC(xf86MatchDevice)
     SYMFUNC(xf86MatchPciInstances)
-    SYMFUNC(xf86MatchIsaInstances)
     SYMFUNC(xf86GetVerbosity)
     SYMFUNC(xf86GetVisualName)
     SYMFUNC(xf86GetPix24)
@@ -463,12 +444,9 @@ _X_HIDDEN void *xfree86LookupTab[] = {
     SYMFUNC(xf86FindXvOptions)
     SYMFUNC(xf86GetOS)
     SYMFUNC(xf86ConfigPciEntity)
-    SYMFUNC(xf86ConfigIsaEntity)
     SYMFUNC(xf86ConfigFbEntity)
     SYMFUNC(xf86ConfigActivePciEntity)
-    SYMFUNC(xf86ConfigActiveIsaEntity)
     SYMFUNC(xf86ConfigPciEntityInactive)
-    SYMFUNC(xf86ConfigIsaEntityInactive)
     SYMFUNC(xf86IsScreenPrimary)
     SYMFUNC(xf86RegisterRootWindowProperty)
     SYMFUNC(xf86IsUnblank)
@@ -653,6 +631,8 @@ _X_HIDDEN void *xfree86LookupTab[] = {
     SYMFUNC(xf86ActivateDevice)
     SYMFUNC(xf86XInputSetScreen)
     SYMFUNC(xf86ScaleAxis)
+    SYMFUNC(NewInputDeviceRequest)
+    SYMFUNC(DeleteInputDeviceRequest)
 #ifdef DPMSExtension
     SYMFUNC(DPMSGet)
     SYMFUNC(DPMSSet)
@@ -661,7 +641,6 @@ _X_HIDDEN void *xfree86LookupTab[] = {
 
     SYMFUNC(pciTag)
     SYMFUNC(pciBusAddrToHostAddr)
-    SYMFUNC(xf86scanpci)
 
     /* Loader functions */
     SYMFUNC(LoadSubModule)
@@ -850,9 +829,6 @@ _X_HIDDEN void *xfree86LookupTab[] = {
     /* Globals from xf86Configure.c */
     SYMVAR(ConfiguredMonitor)
 
-    /* Pci.c */
-    SYMVAR(pciNumBuses)
-
     /* modes */
     SYMVAR(xf86CrtcConfigPrivateIndex)
     SYMFUNC(xf86CrtcConfigInit)
@@ -924,6 +900,9 @@ _X_HIDDEN void *xfree86LookupTab[] = {
     SYMFUNC(xf86_hide_cursors)
     SYMFUNC(xf86_cursors_fini)
     SYMFUNC(xf86_crtc_clip_video_helper)
+    SYMFUNC(xf86_wrap_crtc_notify)
+    SYMFUNC(xf86_unwrap_crtc_notify)
+    SYMFUNC(xf86_crtc_notify)
 
     SYMFUNC(xf86DoEDID_DDC1)
     SYMFUNC(xf86DoEDID_DDC2)
@@ -932,6 +911,7 @@ _X_HIDDEN void *xfree86LookupTab[] = {
     SYMFUNC(xf86DoEEDID)
     SYMFUNC(xf86DDCMonitorSet)
     SYMFUNC(xf86SetDDCproperties)
+    SYMFUNC(xf86MonitorIsHDMI)
 
     SYMFUNC(xf86CreateI2CBusRec)
     SYMFUNC(xf86CreateI2CDevRec)

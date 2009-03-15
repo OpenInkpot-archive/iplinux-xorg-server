@@ -1,7 +1,6 @@
 /* x-selection.m -- proxies between NSPasteboard and X11 selections
-   $Id: x-selection.m,v 1.9 2006-07-07 18:24:28 jharper Exp $
 
-   Copyright (c) 2002 Apple Computer, Inc. All rights reserved.
+   Copyright (c) 2002, 2008 Apple Computer, Inc. All rights reserved.
 
    Permission is hereby granted, free of charge, to any person
    obtaining a copy of this software and associated documentation files
@@ -26,7 +25,8 @@
    Except as contained in this notice, the name(s) of the above
    copyright holders shall not be used in advertising or otherwise to
    promote the sale, use or other dealings in this Software without
-   prior written authorization. */
+   prior written authorization. 
+*/
 
 #import "x-selection.h"
 
@@ -34,8 +34,9 @@
 #include <stdlib.h>
 #include <X11/Xatom.h>
 #include <X11/Xutil.h>
+#import <AppKit/NSGraphics.h>
+#import <AppKit/NSImage.h>
 #import <AppKit/NSBitmapImageRep.h>
-
 
 /*
  * The basic design of the pbproxy code is as follows.
@@ -52,25 +53,60 @@
  * changed.  If the NSPasteboard has changed, then we set pbproxy as owner
  * of the PRIMARY and CLIPBOARD and respond to requests for text and images.
  *
+ * The behavior is now dynamic since the information above was written.
+ * The behavior is now dependent on the pbproxy_prefs below.
  */
 
 /*
  * TODO:
- * 1. finish handling these pbproxy control knobs.
- * 2. handle  MULTIPLE - I need to study the ICCCM further.
- * 3. Handle PICT images properly.
+ * 1. handle MULTIPLE - I need to study the ICCCM further, and find a test app.
+ * 2. Handle NSPasteboard updates immediately, not on active/inactive
+ *    - Open xterm, run 'cat readme.txt | pbcopy'
  */
 
-// These will be set by X11Controller.m once this is integrated into a server thread
-BOOL pbproxy_active = YES;
-BOOL pbproxy_primary_on_grab = NO; // This is provided as an option for people who want it and has issues that won't ever be addressed to make it *always* work
-BOOL pbproxy_clipboard_to_pasteboard = YES;
-BOOL pbproxy_pasteboard_to_primary = YES;
-BOOL pbproxy_pasteboard_to_clipboard = YES;
+static struct {
+    BOOL active ;
+    BOOL primary_on_grab; /* This is provided as an option for people who
+			   * want it and has issues that won't ever be
+			   * addressed to make it *always* work.
+			   */
+    BOOL clipboard_to_pasteboard;
+    BOOL pasteboard_to_primary;
+    BOOL pasteboard_to_clipboard;
+} pbproxy_prefs = { YES, NO, YES, YES, YES };
 
 @implementation x_selection
 
 static struct propdata null_propdata = {NULL, 0};
+
+#ifdef DEBUG
+static void
+dump_prefs (FILE *fp) {
+    fprintf(fp, 
+	    "pbproxy preferences:\n"
+	    "\tactive %u\n"
+	    "\tprimary_on_grab %u\n"
+	    "\tclipboard_to_pasteboard %u\n"
+	    "\tpasteboard_to_primary %u\n"
+	    "\tpasteboard_to_clipboard %u\n",
+	    pbproxy_prefs.active,
+	    pbproxy_prefs.primary_on_grab,
+	    pbproxy_prefs.clipboard_to_pasteboard,
+	    pbproxy_prefs.pasteboard_to_primary,
+	    pbproxy_prefs.pasteboard_to_clipboard);
+}
+#endif
+
+extern CFStringRef app_prefs_domain_cfstr;
+
+static BOOL
+prefs_get_bool (CFStringRef key, BOOL defaultValue) {
+    Boolean value, ok;
+    
+    value = CFPreferencesGetAppBooleanValue (key, app_prefs_domain_cfstr, &ok);
+   
+    return ok ? (BOOL) value : defaultValue;
+}
 
 static void
 init_propdata (struct propdata *pdata)
@@ -110,15 +146,23 @@ get_property(Window win, Atom property, struct propdata *pdata, Bool delete, Ato
     if(None == property)
 	return True;
     
-    do {
-	unsigned long newbuflen;
-	unsigned char *newbuf;
+    do 
+    {
+	unsigned long newbuflen = 0;
+	unsigned char *newbuf = NULL;
 	
-	if (Success != XGetWindowProperty (x_dpy, win, property,
+#ifdef TEST   
+	printf("bytesleft %lu\n", bytesleft);
+#endif
+
+	if (Success != XGetWindowProperty (xpbproxy_dpy, win, property,
 					   offset, length, delete, 
 					   AnyPropertyType,
 					   type, &format, &numitems, 
-					   &bytesleft, &chunk)) {
+					   &bytesleft, &chunk)) 
+	{
+	    DB ("Error while getting window property.\n");
+	    *pdata = null_propdata;
 	    free (buf);
 	    return True;
 	}
@@ -127,7 +171,7 @@ get_property(Window win, Atom property, struct propdata *pdata, Bool delete, Ato
 	printf("format %d numitems %lu bytesleft %lu\n",
 	       format, numitems, bytesleft);
 	
-	printf("type %s\n", XGetAtomName(dis, *type));
+	printf("type %s\n", XGetAtomName (xpbproxy_dpy, *type));
 #endif
 	
 	/* Format is the number of bits. */
@@ -136,21 +180,34 @@ get_property(Window win, Atom property, struct propdata *pdata, Bool delete, Ato
 #ifdef TEST
 	printf("chunkbytesize %zu\n", chunkbytesize);
 #endif
+ 	newbuflen = buflen + chunkbytesize;
+	if (newbuflen > 0) 
+	{
+	    newbuf = realloc (buf, newbuflen);
+	    
+	    if (NULL == newbuf)
+	    {
+		XFree (chunk);
+		free (buf);
+		return True;
+	    }
 	
-	newbuflen = buflen + chunkbytesize;
-	newbuf = realloc (buf, newbuflen);
-	if (NULL == newbuf) {
+	    memcpy (newbuf + buflen, chunk, chunkbytesize);
 	    XFree (chunk);
-	    free (buf);
-	    return True;
+	    buf = newbuf;
+	    buflen = newbuflen;
+	    /* offset is a multiple of 32 bits*/
+	    offset += chunkbytesize / 4;
+	} 
+	else 
+	{
+	    if (chunk) 
+		XFree (chunk);
 	}
 	
-	memcpy (newbuf + buflen, chunk, chunkbytesize);
-	XFree (chunk);
-	buf = newbuf;
-	buflen = newbuflen;
-	/* offset is a multiple of 32 bits*/
-	offset += chunkbytesize / 4;
+#ifdef TEST
+	printf("bytesleft %lu\n", bytesleft);
+#endif
     } while (bytesleft > 0);
     
     pdata->data = buf;
@@ -160,40 +217,6 @@ get_property(Window win, Atom property, struct propdata *pdata, Bool delete, Ato
 }
 
 
-static unsigned long *
-read_prop_32 (Window id, Atom prop, int *nitems_ret)
-{
-    int r, format;
-    Atom type;
-    unsigned long nitems, bytes_after;
-    unsigned char *data;
-
-    r = XGetWindowProperty (x_dpy, id, prop, 0, 0,
-			    False, AnyPropertyType, &type, &format,
-			    &nitems, &bytes_after, &data);
-
-    if (r == Success && bytes_after != 0)
-    {
-	XFree (data);
-	r = XGetWindowProperty (x_dpy, id, prop, 0,
-				(bytes_after / 4) + 1, False,
-				AnyPropertyType, &type, &format,
-				&nitems, &bytes_after, &data);
-    }
-
-    if (r != Success)
-	return NULL;
-
-    if (format != 32)
-    {
-	XFree (data);
-	return NULL;
-    }
-
-    *nitems_ret = nitems;
-    return (unsigned long *) data;
-}
-
 /* Implementation methods */
 
 /* This finds the preferred type from a TARGETS list.*/
@@ -201,7 +224,7 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 {
     Atom a = None;
     size_t i;
-    Bool png = False, utf8 = False, string = False;
+    Bool png = False, jpeg = False, utf8 = False, string = False;
 
     TRACE ();
 
@@ -213,12 +236,17 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 
     for (i = 0; i < pdata->length; i += sizeof (a))
     {
+	a = None;
 	memcpy (&a, pdata->data + i, sizeof (a));
-	
+
 	if (a == atoms->image_png)
 	{
 	    png = True;
-	} 
+	}
+	else if (a == atoms->image_jpeg)
+	{
+	    jpeg = True;
+	}
 	else if (a == atoms->utf8_string)
 	{
 	    utf8 = True;
@@ -227,11 +255,23 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 	{
 	    string = True;
 	}
+	else
+	{
+	    char *type = XGetAtomName(xpbproxy_dpy, a);
+	    if (type)
+	    {
+		DB("Unhandled X11 mime type: %s", type);
+		XFree(type);
+	    }
+	}
     }
 
     /*We prefer PNG over strings, and UTF8 over a Latin-1 string.*/
     if (png)
 	return atoms->image_png;
+
+    if (jpeg)
+	return atoms->image_jpeg;
 
     if (utf8)
 	return atoms->utf8_string;
@@ -253,7 +293,7 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
        
     TRACE ();
 
-    if (Success != XGetWindowProperty (x_dpy, e->requestor, e->property,
+    if (Success != XGetWindowProperty (xpbproxy_dpy, e->requestor, e->property,
 				       /*offset*/ 0L, /*length*/ 4UL,
 				       /*Delete*/ False,
 				       AnyPropertyType, &seltype, &format,
@@ -309,7 +349,7 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
     memcpy(newdata + pending.propdata.length, pdata->data, pdata->length);
     pending.propdata.data = newdata;
     pending.propdata.length = newlength;
-	
+    
     return False;
 }
 
@@ -320,35 +360,44 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 {
     static NSInteger changeCount;
     NSInteger countNow;
+    NSPasteboard *pb;
 
     TRACE ();
 
-    countNow = [_pasteboard changeCount];
+    pb = [NSPasteboard generalPasteboard];
+
+    if (nil == pb)
+	return;
+
+    countNow = [pb changeCount];
 
     if (countNow != changeCount)
     {
-	DB ("changed pasteboard!\n");
-	changeCount = countNow;
-
-	XSetSelectionOwner (x_dpy, atoms->primary, _selection_window, CurrentTime);
-	[self own_clipboard];
+        DB ("changed pasteboard!\n");
+        changeCount = countNow;
+        
+        if (pbproxy_prefs.pasteboard_to_primary)
+        {
+            XSetSelectionOwner (xpbproxy_dpy, atoms->primary, _selection_window, CurrentTime);
+        }
+        
+        if (pbproxy_prefs.pasteboard_to_clipboard) {
+            [self own_clipboard];
+        }
     }
 
 #if 0
-    if ([_pasteboard changeCount] != _my_last_change)
-    {
 	/*gstaplin: we should perhaps investigate something like this branch above...*/
 	if ([_pasteboard availableTypeFromArray: _known_types] != nil)
 	{
 	    /* Pasteboard has data we should proxy; I think it makes
 	       sense to put it on both CLIPBOARD and PRIMARY */
 
-	    XSetSelectionOwner (x_dpy, atoms->clipboard,
+	    XSetSelectionOwner (xpbproxy_dpy, atoms->clipboard,
 				_selection_window, timestamp);
-	    XSetSelectionOwner (x_dpy, XA_PRIMARY,
+	    XSetSelectionOwner (xpbproxy_dpy, atoms->primary,
 				_selection_window, timestamp);
 	}
-    }
 #endif
 }
 
@@ -364,19 +413,19 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
     TRACE ();
 
     request_atom = atoms->targets;
-    XConvertSelection (x_dpy, atoms->primary, atoms->targets,
+    XConvertSelection (xpbproxy_dpy, atoms->primary, atoms->targets,
 		       atoms->primary, _selection_window, CurrentTime);
 }
 
 /* Called when the Edit/Copy item on the main X11 menubar is selected
-   and no appkit window claims it. */
+ * and no appkit window claims it. */
 - (void) x_copy:(Time)timestamp
 {
     Window w;
 
     TRACE ();
 
-    w = XGetSelectionOwner (x_dpy, atoms->primary);
+    w = XGetSelectionOwner (xpbproxy_dpy, atoms->primary);
 
     if (None != w)
     {
@@ -385,33 +434,50 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 	if (1 == pending_copy) {
 	    /*
 	     * There are no other copy operations in progress, so we
-	     * can proceed safely.
+	     * can proceed safely.  Otherwise the copy_completed method
+	     * will see that the pending_copy is > 1, and do another copy.
 	     */	    
 	    [self x_copy_request_targets];
 	}
     }
     else
     {
-	XBell (x_dpy, 0);
+	XBell (xpbproxy_dpy, 0);
     }
 }
 
-/*
- *
+/* Set pbproxy as owner of the SELECTION_MANAGER selection.
+ * This prevents tools like xclipboard from causing havoc.
+ * Returns TRUE on success
  */
-- (void) set_clipboard_manager
+- (BOOL) set_clipboard_manager_status:(BOOL)value
 {
     TRACE ();
 
-    if (None != XGetSelectionOwner (x_dpy, atoms->clipboard_manager))
-    {
-	fprintf (stderr, "A clipboard manager is already running!\n"
-		 "pbproxy can not continue!\n");
-	exit (EXIT_FAILURE);
-    }
+    Window owner = XGetSelectionOwner (xpbproxy_dpy, atoms->clipboard_manager);
 
-    XSetSelectionOwner (x_dpy, atoms->clipboard_manager, _selection_window,
-			CurrentTime);
+    if(value) {
+        if(owner == _selection_window)
+            return TRUE;
+
+        if(owner != None) {
+            fprintf (stderr, "A clipboard manager using window 0x%lx "
+		     "already owns the clipboard selection.  "
+		     "pbproxy will not sync clipboard to pasteboard.\n", owner);
+            return FALSE;
+        }
+        
+        XSetSelectionOwner(xpbproxy_dpy, atoms->clipboard_manager, _selection_window, CurrentTime);
+        return (_selection_window == XGetSelectionOwner(xpbproxy_dpy, atoms->clipboard_manager));
+    } else {
+        if(owner != _selection_window)
+            return TRUE;
+
+        XSetSelectionOwner(xpbproxy_dpy, atoms->clipboard_manager, None, CurrentTime);
+        return(None == XGetSelectionOwner(xpbproxy_dpy, atoms->clipboard_manager));
+    }
+    
+    return FALSE;
 }
 
 /*
@@ -420,31 +486,31 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
  */
 - (void) clear_event:(XSelectionClearEvent *)e
 {
-    TRACE ();
     
-    DB ("e->selection %s\n", XGetAtomName (x_dpy, e->selection));
- 
-    if (atoms->clipboard == e->selection)
-    {
-	/* 
-	 * We lost ownership of the CLIPBOARD.
-	 */
-	++pending_clipboard;
 
-	if (1 == pending_clipboard) 
-	{
-	    /* Claim the clipboard contents from the new owner. */
-	    [self claim_clipboard];
-	}
-    } 
-    else if (atoms->clipboard_manager == e->selection)
-    {
-	/* Another CLIPBOARD_MANAGER has set itself as owner.
-         * a) we can call [self set_clipboard_manager] here and risk a war.
-	 * b) we can print a message and exit.  Ideally we would popup a message box.
-	 */
-	fprintf (stderr, "error: another clipboard manager was started!\n"); 
-	//exit (EXIT_FAILURE);
+    TRACE ();
+        
+    DB ("e->selection %s\n", XGetAtomName (xpbproxy_dpy, e->selection));
+    
+    if(e->selection == atoms->clipboard) {
+        /* 
+         * We lost ownership of the CLIPBOARD.
+         */
+        ++pending_clipboard;
+        
+        if (1 == pending_clipboard) {
+            /* Claim the clipboard contents from the new owner. */
+            [self claim_clipboard];
+        }
+    } else if(e->selection == atoms->clipboard_manager) {
+        if(pbproxy_prefs.clipboard_to_pasteboard) {
+            /* Another CLIPBOARD_MANAGER has set itself as owner.  Disable syncing
+             * to avoid a race.
+             */
+            fprintf(stderr, "Another clipboard manager was started!  "
+		    "xpbproxy is disabling syncing with clipboard.\n"); 
+            pbproxy_prefs.clipboard_to_pasteboard = NO;
+        }
     }
 }
 
@@ -456,28 +522,30 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
     Window owner;
     
     TRACE ();
-
-    if (NO == pbproxy_clipboard_to_pasteboard)
-	return;
     
-    owner = XGetSelectionOwner (x_dpy, atoms->clipboard);
-    if (None == owner)
-    {
-	/*
-	 * The owner probably died or we are just starting up pbproxy.
-	 * Set pbproxy's _selection_window as the owner, and continue.
-	 */
-	DB ("No clipboard owner.\n");
-	[self copy_completed:atoms->clipboard];
-	return;
+    if (!pbproxy_prefs.clipboard_to_pasteboard)
+        return;
+    
+    owner = XGetSelectionOwner (xpbproxy_dpy, atoms->clipboard);
+    if (None == owner) {
+        /*
+         * The owner probably died or we are just starting up pbproxy.
+         * Set pbproxy's _selection_window as the owner, and continue.
+         */
+        DB ("No clipboard owner.\n");
+        [self copy_completed:atoms->clipboard];
+        return;
+    } else if (owner == _selection_window) {
+        [self copy_completed:atoms->clipboard];
+        return;
     }
     
     DB ("requesting targets\n");
-
+    
     request_atom = atoms->targets;
-    XConvertSelection (x_dpy, atoms->clipboard, atoms->targets,
-		       atoms->clipboard, _selection_window, CurrentTime);
-    XFlush (x_dpy);
+    XConvertSelection (xpbproxy_dpy, atoms->clipboard, atoms->targets,
+                       atoms->clipboard, _selection_window, CurrentTime);
+    XFlush (xpbproxy_dpy);
     /* Now we will get a SelectionNotify event in the future. */
 }
 
@@ -490,9 +558,9 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
     /* We should perhaps have a boundary limit on the number of iterations... */
     do 
     {
-	XSetSelectionOwner (x_dpy, atoms->clipboard, _selection_window,
+	XSetSelectionOwner (xpbproxy_dpy, atoms->clipboard, _selection_window,
 			    CurrentTime);
-    } while (_selection_window != XGetSelectionOwner (x_dpy,
+    } while (_selection_window != XGetSelectionOwner (xpbproxy_dpy,
 						      atoms->clipboard));
 }
 
@@ -514,8 +582,8 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
      */
     DB ("reply->xselection.requestor 0x%lx\n", reply->xselection.requestor);
   
-    XSendEvent (x_dpy, reply->xselection.requestor, False, 0, reply);
-    XFlush (x_dpy);
+    XSendEvent (xpbproxy_dpy, reply->xselection.requestor, False, 0, reply);
+    XFlush (xpbproxy_dpy);
 }
 
 /* 
@@ -526,19 +594,26 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
  * (in Latin-1 encoding).  The requestor can then make the choice based on
  * the list.
  */
-- (void) send_targets:(XSelectionRequestEvent *)e
+- (void) send_targets:(XSelectionRequestEvent *)e pasteboard:(NSPasteboard *)pb
 {
     XEvent reply;
     NSArray *pbtypes;
 
     [self init_reply:&reply request:e];
 
-    pbtypes = [_pasteboard types];
+    pbtypes = [pb types];
     if (pbtypes)
     {
-	long list[6];
+	long list[7]; /* Don't forget to increase this if we handle more types! */
         long count = 0;
-	
+ 	
+	/*
+	 * I'm not sure if this is needed, but some toolkits/clients list 
+	 * TARGETS in response to targets. 
+	 */
+	list[count] = atoms->targets;
+	++count;
+
 	if ([pbtypes containsObject:NSStringPboardType])
 	{
 	    /* We have a string type that we can convert to UTF8, or Latin-1... */
@@ -555,7 +630,8 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 	 * functionality in send_image.
 	 */
 
-	if ([pbtypes containsObject:NSTIFFPboardType]) 
+	if ([pbtypes containsObject:NSPICTPboardType] 
+	    || [pbtypes containsObject:NSTIFFPboardType]) 
 	{
 	    /* We can convert a TIFF to a PNG or JPEG. */
 	    DB ("NSTIFFPboardType\n");
@@ -568,7 +644,7 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 	if (count)
 	{
 	    /* We have a list of ATOMs to send. */
-	    XChangeProperty (x_dpy, e->requestor, e->property, atoms->atom, 32,
+	    XChangeProperty (xpbproxy_dpy, e->requestor, e->property, atoms->atom, 32,
 			 PropModeReplace, (unsigned char *) list, count);
 	    
 	    reply.xselection.property = e->property;
@@ -579,59 +655,69 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 }
 
 
-- (void) send_string:(XSelectionRequestEvent *)e utf8:(BOOL)utf8
+- (void) send_string:(XSelectionRequestEvent *)e utf8:(BOOL)utf8 pasteboard:(NSPasteboard *)pb
 {
     XEvent reply;
     NSArray *pbtypes;
-    
+    NSString *data;
+    const char *bytes;
+    NSUInteger length;
+
     TRACE ();
 
     [self init_reply:&reply request:e];
 
-    pbtypes = [_pasteboard types];
-
-    if ([pbtypes containsObject: NSStringPboardType])
+    pbtypes = [pb types];
+ 
+    if (![pbtypes containsObject:NSStringPboardType])
     {
-	NSString *data = [_pasteboard stringForType:NSStringPboardType];
-	if (nil != data)
-	{
-	    const char *bytes;
-	    NSUInteger length;
-
-	    if (utf8) 
-	    {
-		bytes = [data UTF8String];
-		/*
-		 * We don't want the UTF-8 string length here.  
-		 * We want the length in bytes.
-		 */
-		length = strlen (bytes);
-
-		if (length < 50) {
-		    DB ("UTF-8: %s\n", bytes);
-		    DB ("UTF-8 length: %u\n", length); 
-		}
-	    } 
-	    else 
-	    {
-		DB ("Latin-1\n");
-		bytes = [data cStringUsingEncoding:NSISOLatin1StringEncoding];
-		length = strlen (bytes);
-	    }
-
-	    DB ("e->target %s\n", XGetAtomName (x_dpy, e->target));
-
-	    XChangeProperty (x_dpy, e->requestor, e->property, e->target,
-			     8, PropModeReplace, (unsigned char *) bytes, length);
-	    
-	    reply.xselection.property = e->property;
- 	}
+	[self send_reply:&reply];
+	return;
     }
+
+    DB ("pbtypes retainCount after containsObject: %u\n", [pbtypes retainCount]);
+
+    data = [pb stringForType:NSStringPboardType];
+
+    if (nil == data)
+    {
+	[self send_reply:&reply];
+	return;
+    }
+
+    if (utf8) 
+    {
+	bytes = [data UTF8String];
+	/*
+	 * We don't want the UTF-8 string length here.  
+	 * We want the length in bytes.
+	 */
+	length = strlen (bytes);
+	
+	if (length < 50) {
+	    DB ("UTF-8: %s\n", bytes);
+	    DB ("UTF-8 length: %u\n", length); 
+	}
+    } 
+    else 
+    {
+	DB ("Latin-1\n");
+	bytes = [data cStringUsingEncoding:NSISOLatin1StringEncoding];
+	/*WARNING: bytes is not NUL-terminated. */
+	length = [data lengthOfBytesUsingEncoding:NSISOLatin1StringEncoding];
+    }
+
+    DB ("e->target %s\n", XGetAtomName (xpbproxy_dpy, e->target));
+    
+    XChangeProperty (xpbproxy_dpy, e->requestor, e->property, e->target,
+		     8, PropModeReplace, (unsigned char *) bytes, length);
+    
+    reply.xselection.property = e->property;
 
     [self send_reply:&reply];
 }
 
-- (void) send_compound_text:(XSelectionRequestEvent *)e
+- (void) send_compound_text:(XSelectionRequestEvent *)e pasteboard:(NSPasteboard *)pb
 {
     XEvent reply;
     NSArray *pbtypes;
@@ -640,11 +726,11 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
     
     [self init_reply:&reply request:e];
      
-    pbtypes = [_pasteboard types];
+    pbtypes = [pb types];
 
     if ([pbtypes containsObject: NSStringPboardType])
     {
-	NSString *data = [_pasteboard stringForType:NSStringPboardType];
+	NSString *data = [pb stringForType:NSStringPboardType];
 	if (nil != data)
 	{
 	    /*
@@ -657,7 +743,7 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 	    
 	    textprop.value = NULL;
 
-	    if (Success == Xutf8TextListToTextProperty (x_dpy, list, 1,
+	    if (Success == Xutf8TextListToTextProperty (xpbproxy_dpy, list, 1,
 							XCompoundTextStyle,
 							&textprop))
 	    {
@@ -666,7 +752,7 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 		    DB ("textprop.format is unexpectedly not 8 - it's %d instead\n",
 			textprop.format);
 
-		XChangeProperty (x_dpy, e->requestor, e->property, 
+		XChangeProperty (xpbproxy_dpy, e->requestor, e->property, 
 				 atoms->compound_text, textprop.format, 
 				 PropModeReplace, textprop.value,
 				 textprop.nitems);
@@ -676,6 +762,7 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 
 	    if (textprop.value)
  		XFree (textprop.value);
+
 	}
     }
     
@@ -699,89 +786,159 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
     [self send_reply:&reply];
 }
 
+/* Return nil if an error occured. */
+/* DO NOT retain the encdata for longer than the length of an event response.  
+ * The autorelease pool will reuse/free it.
+ */ 
+- (NSData *) encode_image_data:(NSData *)data type:(NSBitmapImageFileType)enctype
+{
+    NSBitmapImageRep *bmimage = nil; 
+    NSData *encdata = nil;
+    NSDictionary *dict = nil;
 
-- (void) send_image:(XSelectionRequestEvent *)e
+    bmimage = [[NSBitmapImageRep alloc] initWithData:data];
+
+    if (nil == bmimage)
+	return nil;
+
+    dict = [[NSDictionary alloc] init];
+    encdata = [bmimage representationUsingType:enctype properties:dict];
+
+    if (nil == encdata)
+    {
+	[dict autorelease];
+	[bmimage autorelease];
+	return nil;
+    }
+    
+    [dict autorelease];
+    [bmimage autorelease];
+
+    return encdata;
+}
+
+/* Return YES when an error has occured when trying to send the PICT. */
+/* The caller should send a default reponse with a property of None when an error occurs. */
+- (BOOL) send_image_pict_reply:(XSelectionRequestEvent *)e 
+		    pasteboard:(NSPasteboard *)pb 
+			  type:(NSBitmapImageFileType)imagetype
 {
     XEvent reply;
-    NSArray *pbtypes;
-    NSString *type = nil;
-    NSBitmapImageFileType imagetype = /*quiet warning*/ NSPNGFileType; 
-    NSData *data;
+    NSImage *img = nil;
+    NSData *data = nil, *encdata = nil;
+    NSUInteger length;
+    const void *bytes = NULL;
+    
+    img = [[NSImage alloc] initWithPasteboard:pb];
 
-    TRACE ();
+    if (nil == img) 
+    {
+	return YES;
+    }
+	    
+    data = [img TIFFRepresentation];
+
+    if (nil == data)
+    {
+	[img autorelease];
+	fprintf(stderr, "unable to convert PICT to TIFF!\n");
+	return YES;
+    }
+        
+    encdata = [self encode_image_data:data type:imagetype];
+    if(nil == encdata)
+    {
+	[img autorelease];
+	return YES;
+    }
 
     [self init_reply:&reply request:e];
 
-    pbtypes = [_pasteboard types];
+    length = [encdata length];
+    bytes = [encdata bytes];
+    
+    XChangeProperty (xpbproxy_dpy, e->requestor, e->property, e->target,
+		     8, PropModeReplace, bytes, length);
+    reply.xselection.property = e->property;
 
-    if (pbtypes) 
-    {
-	if ([pbtypes containsObject:NSTIFFPboardType])
-	    type = NSTIFFPboardType;
+    [self send_reply:&reply];
 
-	/* PICT is not yet supported by pbproxy. 
-	 * The NSBitmapImageRep doesn't support it. 
-	else if ([pbtypes containsObject:NSPICTPboardType])
-	    type  = NSPICTPboardType;
-	*/
-    }
+    [img autorelease];
+
+    return NO; /*no error*/
+}
+
+/* Return YES if an error occured. */
+/* The caller should send a reply with a property of None when an error occurs. */
+- (BOOL) send_image_tiff_reply:(XSelectionRequestEvent *)e
+		    pasteboard:(NSPasteboard *)pb 
+			  type:(NSBitmapImageFileType)imagetype
+{
+    XEvent reply;
+    NSData *data = nil;
+    NSData *encdata = nil;
+    NSUInteger length;
+    const void *bytes = NULL;
+
+    data = [pb dataForType:NSTIFFPboardType];
+
+    if (nil == data)
+ 	return YES;
+  
+    encdata = [self encode_image_data:data type:imagetype];
+
+    if(nil == encdata)
+	return YES;
+
+    [self init_reply:&reply request:e];
+
+    length = [encdata length];
+    bytes = [encdata bytes];
+    
+    XChangeProperty (xpbproxy_dpy, e->requestor, e->property, e->target,
+		     8, PropModeReplace, bytes, length);
+    reply.xselection.property = e->property;
+    
+    [self send_reply:&reply];
+
+    return NO; /*no error*/
+}
+
+- (void) send_image:(XSelectionRequestEvent *)e pasteboard:(NSPasteboard *)pb
+{
+    NSArray *pbtypes = nil;
+    NSBitmapImageFileType imagetype = NSPNGFileType;
+
+    TRACE ();
 
     if (e->target == atoms->image_png)
 	imagetype = NSPNGFileType;
     else if (e->target == atoms->image_jpeg)
 	imagetype = NSJPEGFileType;
-        
-
-    if (nil == type) 
+    else 
     {
-	[self send_reply:&reply];
-	return;
+	fprintf(stderr, "internal failure in xpbproxy!  imagetype being sent isn't PNG or JPEG.\n");
     }
 
-    data = [_pasteboard dataForType:type];
+    pbtypes = [pb types];
 
-    if (nil == data)
+    if (pbtypes) 
     {
-	[self send_reply:&reply];
-	return;
+	if ([pbtypes containsObject:NSTIFFPboardType])
+	{
+	    if (NO == [self send_image_tiff_reply:e pasteboard:pb type:imagetype]) 
+	  	return;
+	} 
+     	else if ([pbtypes containsObject:NSPICTPboardType])
+	{
+	    if (NO == [self send_image_pict_reply:e pasteboard:pb type:imagetype]) 
+		return;
+
+	    /* Fall through intentionally to the send_none: */
+	}
     }
-	 
-    if (NSTIFFPboardType == type)
-    {
-	NSBitmapImageRep *bmimage = [[NSBitmapImageRep alloc] initWithData:data];
-	NSDictionary *dict;
-	NSData *encdata;
 
-	if (nil == bmimage) 
-	{
-	    [self send_reply:&reply];
-	    return;
-	}
-
-	DB ("have valid bmimage\n");
-	
-	dict = [[NSDictionary alloc] init];
-	encdata = [bmimage representationUsingType:imagetype properties:dict];
-	if (encdata)
-	{
-	    NSUInteger length;
-	    const void *bytes;
-	    
-	    length = [encdata length];
-	    bytes = [encdata bytes];
-		
-	    XChangeProperty (x_dpy, e->requestor, e->property, e->target,
-				 8, PropModeReplace, bytes, length);
-	    
-	    reply.xselection.property = e->property;
-	    
-	    DB ("changed property for %s\n", XGetAtomName (x_dpy, e->target));
-	}
-	[dict release];
-	[bmimage release];
-    } 
-
-    [self send_reply:&reply];
+    [self send_none:e];
 }
 
 - (void)send_none:(XSelectionRequestEvent *)e
@@ -798,6 +955,8 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 /* Another client requested the data or targets of data available from the clipboard. */
 - (void)request_event:(XSelectionRequestEvent *)e
 {
+    NSPasteboard *pb;
+
     TRACE ();
 
     /* TODO We should also keep track of the time of the selection, and 
@@ -813,28 +972,41 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
     /*TODO we need a COMPOUND_TEXT test app*/
     /*TODO we need a MULTIPLE test app*/
 
-    DB ("e->target %s\n", XGetAtomName (x_dpy, e->target));
+    pb = [NSPasteboard generalPasteboard];
+    if (nil == pb) 
+    {
+	[self send_none:e];
+	return;
+    }
+    
+
+    if (None != e->target)
+	DB ("e->target %s\n", XGetAtomName (xpbproxy_dpy, e->target));
 
     if (e->target == atoms->targets) 
     {
 	/* The paste requestor wants to know what TARGETS we support. */
-	[self send_targets:e];
+	[self send_targets:e pasteboard:pb];
     }
     else if (e->target == atoms->multiple)
     {
+	/*
+	 * This isn't finished, and may never be, unless I can find 
+	 * a good test app.
+	 */
 	[self send_multiple:e];
     } 
     else if (e->target == atoms->utf8_string)
     {
-	[self send_string:e utf8:YES];
+	[self send_string:e utf8:YES pasteboard:pb];
     } 
     else if (e->target == atoms->string)
     {
-	[self send_string:e utf8:NO];
+	[self send_string:e utf8:NO pasteboard:pb];
     }
     else if (e->target == atoms->compound_text)
     {
-	[self send_compound_text:e];
+	[self send_compound_text:e pasteboard:pb];
     }
     else if (e->target == atoms->multiple)
     {
@@ -842,9 +1014,9 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
     }
     else if (e->target == atoms->image_png || e->target == atoms->image_jpeg)
     {
-	[self send_image:e];
+	[self send_image:e pasteboard:pb];
     }
-    else 
+    else
     {
 	[self send_none:e];
     }
@@ -867,8 +1039,10 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 	return;
     }
 
-    DB ("e->selection %s\n", XGetAtomName (x_dpy, e->selection));
-    DB ("e->property %s\n", XGetAtomName (x_dpy, e->property));
+#if 0
+    printf ("e->selection %s\n", XGetAtomName (xpbproxy_dpy, e->selection));
+    printf ("e->property %s\n", XGetAtomName (xpbproxy_dpy, e->property));
+#endif
 
     if ([self is_incr_type:e]) 
     {
@@ -890,7 +1064,7 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 
 	free_propdata (&pdata);
 
-	pending.requestor = e->requestor;
+      	pending.requestor = e->requestor;
 	pending.selection = e->selection;
 
 	DB ("set pending.requestor to 0x%lx\n", pending.requestor);
@@ -919,9 +1093,18 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 
     TRACE ();
     
-    if (None != e->atom)
-	DB ("e->atom %s\n", XGetAtomName (x_dpy, e->atom));
+    if (None != e->atom) 
+    {
+#ifdef DEBUG
+	char *name = XGetAtomName (xpbproxy_dpy, e->atom);
 
+	if (name) 
+	{
+	    DB ("e->atom %s\n", name);
+	    XFree(name);
+	}
+#endif
+    }
 
     if (None != pending.requestor && PropertyNewValue == e->state) 
     {
@@ -936,16 +1119,39 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 
 	if (0 == pdata.length) 
 	{
-	    /* We completed the transfer. */
+	    /*
+	     * We completed the transfer.
+	     * handle_selection will call copy_completed: for us.
+	     */
 	    [self handle_selection:pending.selection type:type propdata:&pending.propdata];
+	    free_propdata(&pdata);
 	    pending.propdata = null_propdata;
 	    pending.requestor = None;
 	    pending.selection = None;
-	} 
+	}
 	else 
 	{
 	    [self append_to_pending:&pdata requestor:e->window];
-	}       
+	    free_propdata (&pdata);
+	}
+    }
+}
+
+- (void) xfixes_selection_notify:(XFixesSelectionNotifyEvent *)e {
+    if(!pbproxy_prefs.active)
+        return;
+    
+    switch(e->subtype) {              
+        case XFixesSetSelectionOwnerNotify:
+            if(e->selection == atoms->primary && pbproxy_prefs.primary_on_grab)
+                [self x_copy:e->timestamp];
+            break;
+                
+        case XFixesSelectionWindowDestroyNotify:
+        case XFixesSelectionClientCloseNotify:
+        default:
+            fprintf(stderr, "Unhandled XFixesSelectionNotifyEvent: subtype=%d\n", e->subtype);
+            break;
     }
 }
 
@@ -953,6 +1159,7 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 {
     /* Find a type we can handle and prefer from the list of ATOMs. */
     Atom preferred;
+    char *name;
 
     TRACE ();
 
@@ -964,18 +1171,26 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 	 * This isn't required by the ICCCM, but some apps apparently 
 	 * don't respond to TARGETS properly.
 	 */
-	preferred = XA_STRING;
+	preferred = atoms->string;
     }
 
-    DB ("requesting %s\n", XGetAtomName (x_dpy, preferred));
+    (void)name; /* Avoid a warning with non-debug compiles. */
+#ifdef DEBUG
+    name = XGetAtomName (xpbproxy_dpy, preferred);
+
+    if (name)
+    {
+	DB ("requesting %s\n", name);
+    }
+#endif
     request_atom = preferred;
-    XConvertSelection (x_dpy, selection, preferred, selection,
+    XConvertSelection (xpbproxy_dpy, selection, preferred, selection,
 		       _selection_window, CurrentTime);    
 }
 
 /* This handles the image type of selection (typically in CLIPBOARD). */
 /* We convert to a TIFF, so that other applications can paste more easily. */
-- (void) handle_image: (struct propdata *)pdata
+- (void) handle_image: (struct propdata *)pdata pasteboard:(NSPasteboard *)pb
 {
     NSArray *pbtypes;
     NSUInteger length;
@@ -993,13 +1208,20 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 	return;
     }
 
+    DB ("data retainCount before NSBitmapImageRep initWithData: %u\n",
+	[data retainCount]);
+
     bmimage = [[NSBitmapImageRep alloc] initWithData:data];
 
     if (nil == bmimage)
     {
+	[data autorelease];
 	DB ("unable to create NSBitmapImageRep!\n");
 	return;
     }
+
+    DB ("data retainCount after NSBitmapImageRep initWithData: %u\n", 
+	[data retainCount]);
 
     @try 
     {
@@ -1009,38 +1231,40 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
     @catch (NSException *e) 
     {
 	DB ("NSTIFFException!\n");
-	[data release];
-	[bmimage release];
+	[data autorelease];
+	[bmimage autorelease];
 	return;
     }
     
+    DB ("bmimage retainCount after TIFFRepresentation %u\n", [bmimage retainCount]);
+
     pbtypes = [NSArray arrayWithObjects:NSTIFFPboardType, nil];
 
     if (nil == pbtypes)
     {
-	[tiff release];
-	[data release];
-	[bmimage release];
+	[data autorelease];
+	[bmimage autorelease];
+	return;
     }
 
-    [_pasteboard declareTypes:pbtypes owner:self];
-    if (YES != [_pasteboard setData:data forType:NSTIFFPboardType])
+    [pb declareTypes:pbtypes owner:nil];
+    if (YES != [pb setData:tiff forType:NSTIFFPboardType])
     {
 	DB ("writing pasteboard data failed!\n");
     }
 
-    [pbtypes release];
-    [data release];
-    [tiff release];
-    [bmimage release];
+    [data autorelease];
+
+    DB ("bmimage retainCount before release %u\n", [bmimage retainCount]);
+    [bmimage autorelease];
 }
 
 /* This handles the UTF8_STRING type of selection. */
-- (void) handle_utf8_string: (struct propdata *)pdata
+- (void) handle_utf8_string:(struct propdata *)pdata pasteboard:(NSPasteboard *)pb
 {
     NSString *string;
     NSArray *pbtypes;
-
+ 
     TRACE ();
 
     string = [[NSString alloc] initWithBytes:pdata->data length:pdata->length encoding:NSUTF8StringEncoding];
@@ -1050,22 +1274,23 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 
     pbtypes = [NSArray arrayWithObjects:NSStringPboardType, nil];
 
-    if (nil != pbtypes)
+    if (nil == pbtypes)
     {
-	[_pasteboard declareTypes:pbtypes owner:self];
-
-	if (YES != [_pasteboard setString:string forType:NSStringPboardType]) {
-	    DB ("_pasteboard setString:forType: failed!\n");
-	}
-	[pbtypes release];
+	[string autorelease];
+	return;	
     }
-    [string release];
 
+    [pb declareTypes:pbtypes owner:nil];
+    
+    if (YES != [pb setString:string forType:NSStringPboardType]) {
+	fprintf(stderr, "pasteboard setString:forType: failed!\n");
+    }
+    [string autorelease];
     DB ("done handling utf8 string\n");
 }
 
 /* This handles the STRING type, which should be in Latin-1. */
-- (void) handle_string: (struct propdata *)pdata
+- (void) handle_string: (struct propdata *)pdata pasteboard:(NSPasteboard *)pb
 {
     NSString *string; 
     NSArray *pbtypes;
@@ -1079,53 +1304,84 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
 
     pbtypes = [NSArray arrayWithObjects:NSStringPboardType, nil];
 
-    if (nil != pbtypes)
+    if (nil == pbtypes)
     {
-	[_pasteboard declareTypes:pbtypes owner:self];
-	[_pasteboard setString:string forType:NSStringPboardType];
-	[pbtypes release];
+	[string autorelease];
+	return;
     }
 
-    [string release];
+    [pb declareTypes:pbtypes owner:nil];
+    if (YES != [pb setString:string forType:NSStringPboardType]) {
+	fprintf(stderr, "pasteboard setString:forType failed in handle_string!\n");
+    }
+    [string autorelease];
 }
 
 /* This is called when the selection is completely retrieved from another client. */
 /* Warning: this frees the propdata. */
 - (void) handle_selection:(Atom)selection type:(Atom)type propdata:(struct propdata *)pdata
 {
+    NSPasteboard *pb;
+
     TRACE ();
 
-    if (request_atom == atoms->targets && type == atoms->atom)
+    pb = [NSPasteboard generalPasteboard];
+
+    if (nil == pb) 
+    {
+	[self copy_completed:selection];
+	free_propdata (pdata);
+	return;
+    }
+
+    /*
+     * Some apps it seems set the type to TARGETS instead of ATOM, such as Eterm.
+     * These aren't ICCCM compliant apps, but we need these to work... 
+     */
+    if (request_atom == atoms->targets
+	&& (type == atoms->atom || type == atoms->targets))
     {
 	[self handle_targets:selection propdata:pdata];
+	free_propdata(pdata);
+	return;
     } 
     else if (type == atoms->image_png)
     {
-	[self handle_image:pdata];
+	[self handle_image:pdata pasteboard:pb];
     } 
     else if (type == atoms->image_jpeg)
     {
-	[self handle_image:pdata];
+	[self handle_image:pdata pasteboard:pb];
     }
     else if (type == atoms->utf8_string) 
     {
-	[self handle_utf8_string:pdata];
+	[self handle_utf8_string:pdata pasteboard:pb];
     } 
     else if (type == atoms->string)
     {
-	[self handle_string:pdata];
+	[self handle_string:pdata pasteboard:pb];
     } 
- 
+   
     free_propdata(pdata);
-    
+
     [self copy_completed:selection];
 }
+
 
 - (void) copy_completed:(Atom)selection
 {
     TRACE ();
-    
-    DB ("copy_completed: %s\n", XGetAtomName (x_dpy, selection));
+    char *name;
+
+    (void)name; /* Avoid warning with non-debug compiles. */
+#ifdef DEBUG
+    name = XGetAtomName (xpbproxy_dpy, selection);
+    if (name)
+    {
+	DB ("copy_completed: %s\n", name);
+	XFree (name);
+    }
+#endif
 
     if (selection == atoms->primary && pending_copy > 0)
     {
@@ -1164,7 +1420,45 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
     }
 }
 
-
+- (void) reload_preferences
+{
+    /*
+     * It's uncertain how we could handle the synchronization failing, so cast to void.
+     * The prefs_get_bool should fall back to defaults if the org.x.X11 plist doesn't exist or is invalid.
+     */
+    (void)CFPreferencesAppSynchronize(app_prefs_domain_cfstr);
+#ifdef STANDALONE_XPBPROXY
+    if(xpbproxy_is_standalone)
+        pbproxy_prefs.active = YES;
+    else
+#endif
+    pbproxy_prefs.active = prefs_get_bool(CFSTR("sync_pasteboard"), pbproxy_prefs.active);
+    pbproxy_prefs.primary_on_grab = prefs_get_bool(CFSTR("sync_primary_on_select"), pbproxy_prefs.primary_on_grab);
+    pbproxy_prefs.clipboard_to_pasteboard = prefs_get_bool(CFSTR("sync_clipboard_to_pasteboard"), pbproxy_prefs.clipboard_to_pasteboard);
+    pbproxy_prefs.pasteboard_to_primary = prefs_get_bool(CFSTR("sync_pasteboard_to_primary"), pbproxy_prefs.pasteboard_to_primary);
+    pbproxy_prefs.pasteboard_to_clipboard =  prefs_get_bool(CFSTR("sync_pasteboard_to_clipboard"), pbproxy_prefs.pasteboard_to_clipboard);
+
+    /* This is used for debugging. */
+    //dump_prefs(stdout);
+
+    if(pbproxy_prefs.active && pbproxy_prefs.primary_on_grab && !xpbproxy_have_xfixes) {
+        fprintf(stderr, "Disabling sync_primary_on_select functionality due to missing XFixes extension.\n");
+        pbproxy_prefs.primary_on_grab = NO;
+    }
+
+    /* Claim or release the CLIPBOARD_MANAGER atom */
+    if(![self set_clipboard_manager_status:(pbproxy_prefs.active && pbproxy_prefs.clipboard_to_pasteboard)])
+        pbproxy_prefs.clipboard_to_pasteboard = NO;
+    
+    if(pbproxy_prefs.active && pbproxy_prefs.clipboard_to_pasteboard)
+        [self claim_clipboard];
+}
+
+- (BOOL) is_active 
+{
+    return pbproxy_prefs.active;
+}
+
 /* NSPasteboard-required methods */
 
 - (void) paste:(id)sender
@@ -1184,7 +1478,6 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
     /* Right now we don't care with this. */
 }
 
-
 /* Allocation */
 
 - init
@@ -1195,31 +1488,28 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
     if (self == nil)
 	return nil;
 
-    atoms->primary = XInternAtom (x_dpy, "PRIMARY", False);
-    atoms->clipboard = XInternAtom (x_dpy, "CLIPBOARD", False);
-    atoms->text = XInternAtom (x_dpy, "TEXT", False);
-    atoms->utf8_string = XInternAtom (x_dpy, "UTF8_STRING", False);
-    atoms->targets = XInternAtom (x_dpy, "TARGETS", False);
-    atoms->multiple = XInternAtom (x_dpy, "MULTIPLE", False);
-    atoms->cstring = XInternAtom (x_dpy, "CSTRING", False);
-    atoms->image_png = XInternAtom (x_dpy, "image/png", False);
-    atoms->image_jpeg = XInternAtom (x_dpy, "image/jpeg", False);
-    atoms->incr = XInternAtom (x_dpy, "INCR", False);
-    atoms->atom = XInternAtom (x_dpy, "ATOM", False);
-    atoms->clipboard_manager = XInternAtom (x_dpy, "CLIPBOARD_MANAGER", False);
-    atoms->compound_text = XInternAtom (x_dpy, "COMPOUND_TEXT", False);
-    atoms->atom_pair = XInternAtom (x_dpy, "ATOM_PAIR", False);
+    atoms->primary = XInternAtom (xpbproxy_dpy, "PRIMARY", False);
+    atoms->clipboard = XInternAtom (xpbproxy_dpy, "CLIPBOARD", False);
+    atoms->text = XInternAtom (xpbproxy_dpy, "TEXT", False);
+    atoms->utf8_string = XInternAtom (xpbproxy_dpy, "UTF8_STRING", False);
+    atoms->string = XInternAtom (xpbproxy_dpy, "STRING", False);
+    atoms->targets = XInternAtom (xpbproxy_dpy, "TARGETS", False);
+    atoms->multiple = XInternAtom (xpbproxy_dpy, "MULTIPLE", False);
+    atoms->cstring = XInternAtom (xpbproxy_dpy, "CSTRING", False);
+    atoms->image_png = XInternAtom (xpbproxy_dpy, "image/png", False);
+    atoms->image_jpeg = XInternAtom (xpbproxy_dpy, "image/jpeg", False);
+    atoms->incr = XInternAtom (xpbproxy_dpy, "INCR", False);
+    atoms->atom = XInternAtom (xpbproxy_dpy, "ATOM", False);
+    atoms->clipboard_manager = XInternAtom (xpbproxy_dpy, "CLIPBOARD_MANAGER", False);
+    atoms->compound_text = XInternAtom (xpbproxy_dpy, "COMPOUND_TEXT", False);
+    atoms->atom_pair = XInternAtom (xpbproxy_dpy, "ATOM_PAIR", False);
 
-    _pasteboard = [[NSPasteboard generalPasteboard] retain];
-
-    _known_types = [[NSArray arrayWithObject:NSStringPboardType] retain];
-
-    pixel = BlackPixel (x_dpy, DefaultScreen (x_dpy));
-    _selection_window = XCreateSimpleWindow (x_dpy, DefaultRootWindow (x_dpy),
+    pixel = BlackPixel (xpbproxy_dpy, DefaultScreen (xpbproxy_dpy));
+    _selection_window = XCreateSimpleWindow (xpbproxy_dpy, DefaultRootWindow (xpbproxy_dpy),
 					     0, 0, 1, 1, 0, pixel, pixel);
 
     /* This is used to get PropertyNotify events when doing INCR transfers. */
-    XSelectInput (x_dpy, _selection_window, PropertyChangeMask);
+    XSelectInput (xpbproxy_dpy, _selection_window, PropertyChangeMask);
 
     request_atom = None;
 
@@ -1230,22 +1520,20 @@ read_prop_32 (Window id, Atom prop, int *nitems_ret)
     pending_copy = 0;
     pending_clipboard = 0;
 
+    if(xpbproxy_have_xfixes)
+        XFixesSelectSelectionInput(xpbproxy_dpy, _selection_window, atoms->primary, 
+                                   XFixesSetSelectionOwnerNotifyMask);
+
+    [self reload_preferences];
+    
     return self;
 }
 
 - (void) dealloc
 {
-
-    [_pasteboard releaseGlobally];
-    [_pasteboard release];
-    _pasteboard = nil;
-
-    [_known_types release];
-    _known_types = nil;
-
     if (None != _selection_window)
     {
-	XDestroyWindow (x_dpy, _selection_window);
+	XDestroyWindow (xpbproxy_dpy, _selection_window);
 	_selection_window = None;
     }
 

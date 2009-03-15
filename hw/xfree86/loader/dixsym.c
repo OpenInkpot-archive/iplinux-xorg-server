@@ -112,7 +112,6 @@ _X_HIDDEN void *dixLookupTab[] = {
     SYMFUNC(QueryColors)
     /* cursor.c */
     SYMFUNC(FreeCursor)
-    SYMVAR(cursorScreenDevPriv)
     /* deprecated.c */
     SYMFUNC(LookupClient)
     SYMFUNC(LookupDrawable)
@@ -139,7 +138,6 @@ _X_HIDDEN void *dixLookupTab[] = {
     SYMFUNC(SendMappingNotify)
     SYMFUNC(InitPointerDeviceStruct)
     /* dispatch.c */
-    SYMFUNC(SetInputCheck)
     SYMFUNC(SendErrorToClient)
     SYMFUNC(UpdateCurrentTime)
     SYMFUNC(UpdateCurrentTimeIf)
@@ -175,7 +173,6 @@ _X_HIDDEN void *dixLookupTab[] = {
     SYMFUNC(GetSpritePosition)
     SYMFUNC(GetSpriteWindow)
     SYMFUNC(GetSpriteCursor)
-    SYMFUNC(WindowsRestructured)
     SYMVAR(DeviceEventCallback)
     SYMVAR(EventCallback)
     SYMVAR(inputInfo)
@@ -196,10 +193,6 @@ _X_HIDDEN void *dixLookupTab[] = {
     SYMFUNC(CheckExtension)
     SYMFUNC(MinorOpcodeOfRequest)
     SYMFUNC(StandardMinorOpcode)
-#ifdef XEVIE
-    SYMVAR(xeviehot)
-    SYMVAR(xeviewin)
-#endif
     /* gc.c */
     SYMFUNC(CopyGC)
     SYMFUNC(CreateGC)
@@ -210,10 +203,8 @@ _X_HIDDEN void *dixLookupTab[] = {
     SYMFUNC(FreeGC)
     SYMFUNC(FreeScratchGC)
     SYMFUNC(GetScratchGC)
-    SYMFUNC(SetClipRects)
     SYMFUNC(ValidateGC)
     SYMFUNC(VerifyRectOrder)
-    SYMFUNC(SetDashes)
     /* globals.c */
     SYMVAR(ScreenSaverTime)
 #ifdef DPMSExtension
@@ -225,7 +216,6 @@ _X_HIDDEN void *dixLookupTab[] = {
     SYMVAR(DPMSSuspendTime)
     SYMVAR(DPMSEnabledSwitch)
     SYMVAR(DPMSDisabledSwitch)
-    SYMVAR(defaultDPMSEnabled)
 #endif
 #ifdef XV
     /* XXX These are exported from the DDX, not DIX. */
@@ -274,8 +264,6 @@ _X_HIDDEN void *dixLookupTab[] = {
     SYMFUNC(FakeClientID)
     SYMFUNC(FreeResource)
     SYMFUNC(FreeResourceByType)
-    SYMFUNC(GetXIDList)
-    SYMFUNC(GetXIDRange)
     SYMFUNC(LegalNewID)
     SYMFUNC(FindClientResourcesByType)
     SYMFUNC(FindAllClientResources)
@@ -302,8 +290,6 @@ _X_HIDDEN void *dixLookupTab[] = {
     SYMFUNC(SwapColorItem)
     /* tables.c */
     SYMVAR(EventSwapVector)
-    SYMVAR(ReplySwapVector)
-    SYMVAR(ProcVector)
     /* window.c */
     SYMFUNC(ChangeWindowAttributes)
     SYMFUNC(CheckWindowOptionalNeed)
@@ -313,14 +299,9 @@ _X_HIDDEN void *dixLookupTab[] = {
     SYMFUNC(GravityTranslate)
     SYMFUNC(MakeWindowOptional)
     SYMFUNC(MapWindow)
-    SYMFUNC(MoveWindowInStack)
     SYMFUNC(NotClippedByChildren)
-    SYMFUNC(ResizeChildrenWinSize)
     SYMFUNC(SaveScreens)
     SYMFUNC(dixSaveScreens)
-    SYMFUNC(SendVisibilityNotify)
-    SYMFUNC(SetWinSize)
-    SYMFUNC(SetBorderSize)
     SYMFUNC(TraverseTree)
     SYMFUNC(UnmapWindow)
     SYMFUNC(WalkTree)
@@ -333,7 +314,6 @@ _X_HIDDEN void *dixLookupTab[] = {
     /* utils.c */
     SYMFUNC(Xstrdup)
     SYMFUNC(XNFstrdup)
-    SYMVAR(Must_have_memory)
     SYMFUNC(AdjustWaitForDelay)
     SYMVAR(noTestExtensions)
     SYMFUNC(GiveUp)
@@ -374,9 +354,6 @@ _X_HIDDEN void *dixLookupTab[] = {
 #ifdef RES
     SYMVAR(noResExtension)
 #endif
-#ifdef XEVIE
-    SYMVAR(noXevieExtension)
-#endif
 #ifdef XF86BIGFONT
     SYMVAR(noXFree86BigfontExtension)
 #endif
@@ -399,9 +376,6 @@ _X_HIDDEN void *dixLookupTab[] = {
 #ifdef PANORAMIX
     SYMVAR(noPanoramiXExtension)
 #endif
-
-    SYMVAR(noXInputExtension)
-
 #ifdef XSELINUX
     SYMVAR(noSELinuxExtension)
 #endif
@@ -436,15 +410,12 @@ _X_HIDDEN void *dixLookupTab[] = {
     SYMFUNC(SetCriticalOutputPending)
     SYMVAR(FlushCallback)
     SYMVAR(ReplyCallback)
-    SYMVAR(SkippedRequestsCallback)
     SYMFUNC(ResetCurrentRequest)
     /* connection.c */
     SYMFUNC(IgnoreClient)
     SYMFUNC(AttendClient)
     SYMFUNC(AddEnabledDevice)
     SYMFUNC(RemoveEnabledDevice)
-    SYMFUNC(MakeClientGrabPervious)
-    SYMFUNC(MakeClientGrabImpervious)
     SYMVAR(GrabInProgress)
 
 #ifdef XKB
@@ -459,8 +430,6 @@ _X_HIDDEN void *dixLookupTab[] = {
     /* exevents.c */
     SYMFUNC(InitValuatorAxisStruct)
     SYMFUNC(InitProximityClassDeviceStruct)
-    /* extinit.c */
-    SYMFUNC(AssignTypeAndName)
 
     /* xf86DGA.c */
     /* XXX This is exported from the DDX, not DIX. */

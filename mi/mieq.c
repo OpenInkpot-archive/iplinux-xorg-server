@@ -80,6 +80,26 @@ typedef struct _EventQueue {
 } EventQueueRec, *EventQueuePtr;
 
 static EventQueueRec miEventQueue;
+static EventListPtr masterEvents; /* for use in mieqProcessInputEvents */
+
+#ifdef XQUARTZ
+#include  <pthread.h>
+static pthread_mutex_t miEventQueueMutex = PTHREAD_MUTEX_INITIALIZER;
+
+extern BOOL serverInitComplete;
+extern pthread_mutex_t serverInitCompleteMutex;
+extern pthread_cond_t serverInitCompleteCond;
+
+static inline void wait_for_server_init(void) {
+    /* If the server hasn't finished initializing, wait for it... */
+    if(!serverInitComplete) {
+        pthread_mutex_lock(&serverInitCompleteMutex);
+        while(!serverInitComplete)
+            pthread_cond_wait(&serverInitCompleteCond, &serverInitCompleteMutex);
+        pthread_mutex_unlock(&serverInitCompleteMutex);
+    }
+}
+#endif
 
 Bool
 mieqInit(void)
@@ -93,11 +113,22 @@ mieqInit(void)
         miEventQueue.handlers[i] = NULL;
     for (i = 0; i < QUEUE_SIZE; i++)
     {
-        EventListPtr evlist = InitEventList(7); /* 1 + MAX_VALUATOR_EVENTS */
+        EventListPtr evlist = InitEventList(1 + MAX_VALUATOR_EVENTS);
         if (!evlist)
             FatalError("Could not allocate event queue.\n");
         miEventQueue.events[i].events = evlist;
     }
+
+    /* XXX: mE is just 1 event long, if we have Motion + Valuator they are
+     * squashed into the first event to make passing it into the event
+     * processing handlers easier. This should be fixed when the processing
+     * handlers switch to EventListPtr instead of xEvent */
+    masterEvents = InitEventList(1);
+    if (!masterEvents)
+        FatalError("Could not allocated MD event queue.\n");
+    SetMinimumEventSize(masterEvents, 1,
+                        (1 + MAX_VALUATOR_EVENTS) * sizeof(xEvent));
+
     SetInputCheck(&miEventQueue.head, &miEventQueue.tail);
     return TRUE;
 }
@@ -122,11 +153,15 @@ mieqResizeEvents(int min_size)
 void
 mieqEnqueue(DeviceIntPtr pDev, xEvent *e)
 {
-    unsigned int           oldtail = miEventQueue.tail, newtail;
+    unsigned int           oldtail = miEventQueue.tail;
     EventListPtr           evt;
     int                    isMotion = 0;
     int                    evlen;
 
+#ifdef XQUARTZ
+    wait_for_server_init();
+    pthread_mutex_lock(&miEventQueueMutex);
+#endif
 
     /* avoid merging events from different devices */
     if (e->u.u.type == MotionNotify)
@@ -145,6 +180,10 @@ mieqEnqueue(DeviceIntPtr pDev, xEvent *e)
         lastkbp = (deviceKeyButtonPointer *) laste->events->event;
 
         if (laste->nevents > 6) {
+#ifdef XQUARTZ
+            pthread_mutex_unlock(&miEventQueueMutex);
+#endif
+            
             ErrorF("[mi] mieqEnqueue: more than six valuator events; dropping.\n");
             return;
         }
@@ -156,11 +195,17 @@ mieqEnqueue(DeviceIntPtr pDev, xEvent *e)
               lastkbp->type == ProximityOut) ||
             ((lastkbp->deviceid & DEVICE_BITS) !=
              (v->deviceid & DEVICE_BITS))) {
+#ifdef XQUARTZ
+            pthread_mutex_unlock(&miEventQueueMutex);
+#endif
             ErrorF("[mi] mieqEnequeue: out-of-order valuator event; dropping.\n");
             return;
         }
 
         memcpy((laste->events[laste->nevents++].event), e, sizeof(xEvent));
+#ifdef XQUARTZ
+        pthread_mutex_unlock(&miEventQueueMutex);
+#endif
         return;
     }
 
@@ -169,16 +214,23 @@ mieqEnqueue(DeviceIntPtr pDev, xEvent *e)
 	oldtail = (oldtail - 1) % QUEUE_SIZE;
     }
     else {
-	newtail = (oldtail + 1) % QUEUE_SIZE;
+	static int stuck = 0;
 	/* Toss events which come in late.  Usually this means your server's
          * stuck in an infinite loop somewhere, but SIGIO is still getting
          * handled. */
-	if (newtail == miEventQueue.head) {
+	if (((oldtail + 1) % QUEUE_SIZE) == miEventQueue.head) {
             ErrorF("[mi] EQ overflowing. The server is probably stuck "
                    "in an infinite loop.\n");
+	    if (!stuck) {
+		xorg_backtrace();
+		stuck = 1;
+	    }
+#ifdef XQUARTZ
+	    pthread_mutex_unlock(&miEventQueueMutex);
+#endif
 	    return;
         }
-	miEventQueue.tail = newtail;
+	stuck = 0;
     }
 
     evlen = sizeof(xEvent);
@@ -193,6 +245,9 @@ mieqEnqueue(DeviceIntPtr pDev, xEvent *e)
         if (!evt->event)
         {
             ErrorF("[mi] Running out of memory. Tossing event.\n");
+#ifdef XQUARTZ
+            pthread_mutex_unlock(&miEventQueueMutex);
+#endif
             return;
         }
     }
@@ -212,24 +267,40 @@ mieqEnqueue(DeviceIntPtr pDev, xEvent *e)
     miEventQueue.events[oldtail].pDev = pDev;
 
     miEventQueue.lastMotion = isMotion;
+    miEventQueue.tail = (oldtail + 1) % QUEUE_SIZE;
+#ifdef XQUARTZ
+    pthread_mutex_unlock(&miEventQueueMutex);
+#endif
 }
 
 void
 mieqSwitchScreen(DeviceIntPtr pDev, ScreenPtr pScreen, Bool fromDIX)
 {
+#ifdef XQUARTZ
+    pthread_mutex_lock(&miEventQueueMutex);
+#endif
     EnqueueScreen(pDev) = pScreen;
     if (fromDIX)
 	DequeueScreen(pDev) = pScreen;
+#ifdef XQUARTZ
+    pthread_mutex_unlock(&miEventQueueMutex);
+#endif
 }
 
 void
 mieqSetHandler(int event, mieqHandler handler)
 {
+#ifdef XQUARTZ
+    pthread_mutex_lock(&miEventQueueMutex);
+#endif
     if (handler && miEventQueue.handlers[event])
         ErrorF("[mi] mieq: warning: overriding existing handler %p with %p for "
                "event %d\n", miEventQueue.handlers[event], handler, event);
 
     miEventQueue.handlers[event] = handler;
+#ifdef XQUARTZ
+    pthread_mutex_unlock(&miEventQueueMutex);
+#endif
 }
 
 /**
@@ -249,50 +320,62 @@ ChangeDeviceID(DeviceIntPtr dev, xEvent* event)
         ((deviceValuator*)event)->deviceid = dev->id;
     else if (type == GenericEvent)
     {
-        /* FIXME: need to put something into XGE to make this saner */
-        if (GEIsType(event, IReqCode, XI_DeviceClassesChangedNotify))
-        {
-            // do nothing or drink a beer. your choice.
-        } else
-            DebugF("[mi] Unknown generic event (%d/%d), cannot change id.\n",
-                    ((xGenericEvent*)event)->extension,
-                    ((xGenericEvent*)event)->evtype);
+        DebugF("[mi] Unknown generic event (%d/%d), cannot change id.\n",
+                ((xGenericEvent*)event)->extension,
+                ((xGenericEvent*)event)->evtype);
     } else
         DebugF("[mi] Unknown event type (%d), cannot change id.\n", type);
+}
+
+static void
+FixUpEventForMaster(DeviceIntPtr mdev, DeviceIntPtr sdev, xEvent* original,
+                    EventListPtr master, int count)
+{
+    /* Ensure chained button mappings, i.e. that the detail field is the
+     * value of the mapped button on the SD, not the physical button */
+    if (original->u.u.type == DeviceButtonPress || original->u.u.type == DeviceButtonRelease)
+    {
+        int btn = original->u.u.detail;
+        if (!sdev->button)
+            return; /* Should never happen */
+
+        master->event->u.u.detail = sdev->button->map[btn];
+    }
 }
 
 /**
  * Copy the given event into master.
  * @param mdev The master device
+ * @param sdev The slave device the original event comes from
  * @param original The event as it came from the EQ
  * @param master The event after being copied
  * @param count Number of events in original.
  */
-static void
-CopyGetMasterEvent(DeviceIntPtr mdev, xEvent* original,
-                   xEvent** master, int count)
+void
+CopyGetMasterEvent(DeviceIntPtr mdev, DeviceIntPtr sdev, xEvent* original,
+                   EventListPtr master, int count)
 {
-    if (count > 1) {
-        *master = xcalloc(count, sizeof(xEvent));
-        if (!*master)
-            FatalError("[mi] No memory left for master event.\n");
-        while(count--)
-        {
-            memcpy(&(*master)[count], &original[count], sizeof(xEvent));
-            ChangeDeviceID(mdev, &(*master)[count]);
-        }
-    } else
+    int len = count * sizeof(xEvent);
+
+    /* Assumption: GenericEvents always have count 1 */
+
+    if (GEV(original)->type == GenericEvent)
+        len += GEV(original)->length * 4;
+
+    if (master->evlen < len)
+        SetMinimumEventSize(master, 1, len);
+
+    memcpy(master->event, original, len);
+    while (count--)
     {
-        int len = sizeof(xEvent);
-        if (original->u.u.type == GenericEvent)
-            len += GEV(original)->length * 4;
-        *master = xalloc(len);
-        if (!*master)
-            FatalError("[mi] No memory left for master event.\n");
-        memcpy(*master, original, len);
-        ChangeDeviceID(mdev, *master);
+        ChangeDeviceID(mdev, &master->event[count]);
+        FixUpEventForMaster(mdev, sdev, original, master, count);
     }
 }
+extern void
+CopyKeyClass(DeviceIntPtr device, DeviceIntPtr master);
+
+
 
 /* Call this from ProcessInputEvents(). */
 void
@@ -301,10 +384,47 @@ mieqProcessInputEvents(void)
     mieqHandler handler;
     EventRec *e = NULL;
     int x = 0, y = 0;
-    xEvent* event,
-            *master_event = NULL;
+    int type, nevents, evlen, i;
+    ScreenPtr screen;
+    static xEvent *event = NULL;
+    static size_t event_size = 0;
+    DeviceIntPtr dev = NULL,
+                 master = NULL;
 
+#ifdef XQUARTZ
+    pthread_mutex_lock(&miEventQueueMutex);
+#endif
+    
     while (miEventQueue.head != miEventQueue.tail) {
+        e = &miEventQueue.events[miEventQueue.head];
+
+        /* GenericEvents always have nevents == 1 */
+        nevents = e->nevents;
+        evlen   = (nevents > 1) ? sizeof(xEvent) : e->events->evlen;
+        if((nevents * evlen) > event_size) {
+            event_size = nevents * evlen;
+            event = (xEvent *)xrealloc(event, event_size);
+        }
+
+        if (!event)
+            FatalError("[mi] No memory left for event processing.\n");
+
+        for (i = 0; i < nevents; i++)
+            memcpy(&event[i], e->events[i].event, evlen);
+
+
+        dev     = e->pDev;
+        screen  = e->pScreen;
+
+        miEventQueue.head = (miEventQueue.head + 1) % QUEUE_SIZE;
+
+#ifdef XQUARTZ
+        pthread_mutex_unlock(&miEventQueueMutex);
+#endif
+        
+        type    = event->u.u.type;
+        master  = (!dev->isMaster && dev->u.master) ? dev->u.master : NULL;
+
         if (screenIsSaved == SCREEN_SAVER_ON)
             dixSaveScreens (serverClient, SCREEN_SAVER_OFF, ScreenSaverReset);
 #ifdef DPMSExtension
@@ -315,80 +435,60 @@ mieqProcessInputEvents(void)
             DPMSSet(serverClient, DPMSModeOn);
 #endif
 
-        e = &miEventQueue.events[miEventQueue.head];
-        miEventQueue.head = (miEventQueue.head + 1) % QUEUE_SIZE;
-
         /* Custom event handler */
-        handler = miEventQueue.handlers[e->events->event->u.u.type];
+        handler = miEventQueue.handlers[type];
 
-        if (e->pScreen != DequeueScreen(e->pDev) && !handler) {
+        if (screen != DequeueScreen(dev) && !handler) {
             /* Assumption - screen switching can only occur on motion events. */
-            DequeueScreen(e->pDev) = e->pScreen;
-            x = e->events[0].event->u.keyButtonPointer.rootX;
-            y = e->events[0].event->u.keyButtonPointer.rootY;
-            NewCurrentScreen (e->pDev, DequeueScreen(e->pDev), x, y);
+            DequeueScreen(dev) = screen;
+            x = event->u.keyButtonPointer.rootX;
+            y = event->u.keyButtonPointer.rootY;
+            NewCurrentScreen (dev, DequeueScreen(dev), x, y);
         }
         else {
-            /* FIXME: Bad hack. The only event where we actually get multiple
-             * events at once is a DeviceMotionNotify followed by
-             * DeviceValuators. For now it's safe enough to just take the
-             * event directly or copy the bunch of events and pass in the
-             * copy. Eventually the interface for the processInputProc needs
-             * to be changed. (whot)
-             */
-            if (e->nevents > 1)
-            {
-                int i;
-                event = xcalloc(e->nevents, sizeof(xEvent));
-                if (!event)
-                    FatalError("[mi] No memory left for event processing.\n");
-                for (i = 0; i < e->nevents; i++)
+            if (master) {
+                /* Force a copy of the key class into the VCK so that the layout
+                   is transferred. */
+                if (event->u.u.type == DeviceKeyPress ||
+                    event->u.u.type == DeviceKeyRelease)
                 {
-                    memcpy(&event[i], e->events[i].event, sizeof(xEvent));
+                    if (!master->key)
+                        master = GetPairedDevice(master);
+		    CopyKeyClass(dev, master);
                 }
-            } else
-                event = e->events->event;
-            if (!e->pDev->isMaster && e->pDev->u.master)
-            {
-                CopyGetMasterEvent(e->pDev->u.master, event,
-                                   &master_event, e->nevents);
-            } else
-                master_event = NULL;
+
+                CopyGetMasterEvent(master, dev, event, masterEvents, nevents);
+            }
 
             /* If someone's registered a custom event handler, let them
              * steal it. */
             if (handler)
             {
-                handler(DequeueScreen(e->pDev)->myNum, e->events->event,
-                        e->pDev, e->nevents);
-                if (!e->pDev->isMaster && e->pDev->u.master)
-                {
-                    handler(DequeueScreen(e->pDev->u.master)->myNum,
-                            e->events->event, e->pDev->u.master, e->nevents);
-                }
+                handler(DequeueScreen(dev)->myNum, event, dev, nevents);
+                if (master)
+                    handler(DequeueScreen(master)->myNum,
+                            masterEvents->event, master, nevents);
             } else
             {
                 /* process slave first, then master */
-                e->pDev->public.processInputProc(event, e->pDev, e->nevents);
+                dev->public.processInputProc(event, dev, nevents);
 
-                if (!e->pDev->isMaster && e->pDev->u.master)
-                {
-                    e->pDev->u.master->public.processInputProc(master_event,
-                            e->pDev->u.master, e->nevents);
-                }
+                if (master)
+                    master->public.processInputProc(masterEvents->event, master,
+                                                    nevents);
             }
-
-            if (e->nevents > 1)
-                xfree(event);
-            xfree(master_event);
         }
 
         /* Update the sprite now. Next event may be from different device. */
-        if (e->events->event[0].u.u.type == DeviceMotionNotify
-                && e->pDev->coreEvents)
-        {
-            miPointerUpdateSprite(e->pDev);
-        }
+        if (type == DeviceMotionNotify && dev->coreEvents)
+            miPointerUpdateSprite(dev);
+
+#ifdef XQUARTZ
+        pthread_mutex_lock(&miEventQueueMutex);
+#endif
     }
+#ifdef XQUARTZ
+    pthread_mutex_unlock(&miEventQueueMutex);
+#endif
 }
 

@@ -29,6 +29,7 @@
  prior written authorization. */
 
 #include <CoreFoundation/CoreFoundation.h>
+#include <AvailabilityMacros.h>
 
 #include <X11/Xlib.h>
 #include <unistd.h>
@@ -37,6 +38,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <signal.h>
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -55,8 +57,10 @@ void DarwinListenOnOpenFD(int fd);
 
 extern int noPanoramiXExtension;
 
-#define DEFAULT_CLIENT "/usr/X11/bin/xterm"
-#define DEFAULT_STARTX "/usr/X11/bin/startx"
+extern int xquartz_resetenv_display;
+
+#define DEFAULT_CLIENT X11BINDIR "/xterm"
+#define DEFAULT_STARTX X11BINDIR "/startx"
 #define DEFAULT_SHELL  "/bin/sh"
 
 #ifndef BUILD_DATE
@@ -71,10 +75,9 @@ const char *__crashreporter_info__base = "X.Org X Server " XSERVER_VERSION " Bui
 char __crashreporter_info__buf[4096];
 char *__crashreporter_info__ = __crashreporter_info__buf;
 
-#define DEBUG 1
+static char *server_bootstrap_name = "org.x.X11";
 
-static int execute(const char *command);
-static char *command_from_prefs(const char *key, const char *default_value);
+#define DEBUG 1
 
 /* This is in quartzStartup.c */
 int server_main(int argc, char **argv, char **envp);
@@ -96,7 +99,6 @@ static pthread_t create_thread(void *func, void *arg) {
     return tid;
 }
 
-#ifdef MACHO_STARTUP
 /*** Mach-O IPC Stuffs ***/
 
 union MaxMsgSize {
@@ -213,7 +215,6 @@ static void socket_handoff_thread(void *arg) {
     unlink(handoff_data->filename);
     free(handoff_data);
     
-#ifndef XQUARTZ_EXPORTS_LAUNCHD_FD
     /* TODO: Clean up this race better... giving xinitrc time to run... need to wait for 1.5 branch:
      *
      * From ajax:
@@ -226,7 +227,6 @@ static void socket_handoff_thread(void *arg) {
     unsigned remain = 3000000;
     fprintf(stderr, "X11.app: Received new $DISPLAY fd: %d ... sleeping to allow xinitrc to catchup.\n", launchd_fd);
     while((remain = usleep(remain)) > 0);
-#endif
     
     fprintf(stderr, "X11.app Handing off fd to server thread via DarwinListenOnOpenFD(%d)\n", launchd_fd);
     DarwinListenOnOpenFD(launchd_fd);
@@ -278,8 +278,12 @@ static int create_socket(char *filename_out) {
     return 0;
 }
 
+static int launchd_socket_handed_off = 0;
+
 kern_return_t do_request_fd_handoff_socket(mach_port_t port, string_t filename) {
     socket_handoff_t *handoff_data;
+    
+    launchd_socket_handed_off = 1;
 
     handoff_data = (socket_handoff_t *)calloc(1,sizeof(socket_handoff_t));
     if(!handoff_data) {
@@ -303,6 +307,11 @@ kern_return_t do_request_fd_handoff_socket(mach_port_t port, string_t filename) 
     return KERN_SUCCESS;
 }
 
+kern_return_t do_request_pid(mach_port_t port, int *my_pid) {
+    *my_pid = getpid();
+    return KERN_SUCCESS;
+}
+
 /*** Server Startup ***/
 kern_return_t do_start_x11_server(mach_port_t port, string_array_t argv,
                                   mach_msg_type_number_t argvCnt,
@@ -312,6 +321,12 @@ kern_return_t do_start_x11_server(mach_port_t port, string_array_t argv,
     char **_argv = alloca((argvCnt + 1) * sizeof(char *));
     char **_envp = alloca((envpCnt + 1) * sizeof(char *));
     size_t i;
+    
+    /* If we didn't get handed a launchd DISPLAY socket, we shoul
+     * unset DISPLAY or we can run into problems with pbproxy
+     */
+    if(!launchd_socket_handed_off)
+        unsetenv("DISPLAY");
     
     if(!_argv || !_envp) {
         return KERN_FAILURE;
@@ -336,17 +351,11 @@ kern_return_t do_start_x11_server(mach_port_t port, string_array_t argv,
 }
 
 int startup_trigger(int argc, char **argv, char **envp) {
-#else
-void *add_launchd_display_thread(void *data);
-
-int main(int argc, char **argv, char **envp) {
-#endif
     Display *display;
     const char *s;
     
     /* Take care of the case where we're called like a normal DDX */
     if(argc > 1 && argv[1][0] == ':') {
-#ifdef MACHO_STARTUP
         size_t i;
         kern_return_t kr;
         mach_port_t mp;
@@ -375,9 +384,13 @@ int main(int argc, char **argv, char **envp) {
             strlcpy(newenvp[i], envp[i], STRING_T_SIZE);
         }
 
-        kr = bootstrap_look_up(bootstrap_port, SERVER_BOOTSTRAP_NAME, &mp);
+        kr = bootstrap_look_up(bootstrap_port, server_bootstrap_name, &mp);
         if (kr != KERN_SUCCESS) {
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
             fprintf(stderr, "bootstrap_look_up(): %s\n", bootstrap_strerror(kr));
+#else
+            fprintf(stderr, "bootstrap_look_up(): %ul\n", (unsigned long)kr);
+#endif
             exit(EXIT_FAILURE);
         }
 
@@ -387,10 +400,6 @@ int main(int argc, char **argv, char **envp) {
             exit(EXIT_FAILURE);
         }
         exit(EXIT_SUCCESS);
-#else
-        create_thread(add_launchd_display_thread, NULL);
-        return server_main(argc, argv, envp);
-#endif
     }
 
     /* If we have a process serial number and it's our only arg, act as if
@@ -403,13 +412,6 @@ int main(int argc, char **argv, char **envp) {
             /* Could open the display, start the launcher */
             XCloseDisplay(display);
 
-#ifdef XQUARTZ_EXPORTS_LAUNCHD_FD
-            fprintf(stderr, "X11.app: Received new DISPLAY fd: %d ... sleeping to allow xinitrc to catchup.\n", launchd_fd);
-            
-            /* TODO: Clean up this race better... givint xinitrc time to run. */
-            sleep(2);
-#endif
-
             return execute(command_from_prefs("app_to_run", DEFAULT_CLIENT));
         }
     }
@@ -418,13 +420,65 @@ int main(int argc, char **argv, char **envp) {
     if((s = getenv("DISPLAY"))) {
         fprintf(stderr, "X11.app: Could not connect to server (DISPLAY=\"%s\", unsetting).  Starting X server.\n", s);
         unsetenv("DISPLAY");
+        
+        /* This tells X11Controller to not use the environment's DISPLAY and reset it based on the server's display */
+        xquartz_resetenv_display = 1;
     } else {
         fprintf(stderr, "X11.app: Could not connect to server (DISPLAY is not set).  Starting X server.\n");
     }
     return execute(command_from_prefs("startx_script", DEFAULT_STARTX));
 }
 
-#ifdef MACHO_STARTUP
+/** Setup the environment we want our child processes to inherit */
+static void ensure_path(const char *dir) {
+    char buf[1024], *temp;
+    
+    /* Make sure /usr/X11/bin is in the $PATH */
+    temp = getenv("PATH");
+    if(temp == NULL || temp[0] == 0) {
+        snprintf(buf, sizeof(buf), "/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:%s", dir);
+        setenv("PATH", buf, TRUE);
+    } else if(strnstr(temp, X11BINDIR, sizeof(temp)) == NULL) {
+        snprintf(buf, sizeof(buf), "%s:%s", temp, dir);
+        setenv("PATH", buf, TRUE);
+    }
+}
+
+static void setup_env() {
+    char *temp;
+    const char *pds = NULL;
+
+    /* Pass on our prefs domain to startx and its inheritors (mainly for
+     * quartz-wm and the Xquartz stub's MachIPC)
+     */
+    CFBundleRef bundle = CFBundleGetMainBundle();
+    if(bundle) {
+        CFStringRef pd = CFBundleGetIdentifier(bundle);
+        if(pd) {
+            pds = CFStringGetCStringPtr(pd, 0);
+            if(pds) {
+                server_bootstrap_name = malloc(sizeof(char) * (strlen(pds) + 1));
+                strcpy(server_bootstrap_name, pds);
+                setenv("X11_PREFS_DOMAIN", pds, 1);
+            }
+        }
+    }
+
+    /* If we're not org.x.X11, we want to unset DISPLAY, so we don't
+     * use the launchd DISPLAY socket.
+     */
+    if(pds == NULL || strcmp(pds, "org.x.X11") != 0)
+        unsetenv("DISPLAY");
+
+    /* Make sure PATH is right */
+    ensure_path(X11BINDIR);
+    
+    /* cd $HOME */
+    temp = getenv("HOME");
+    if(temp != NULL && temp[0] != '\0')
+        chdir(temp);
+}
+
 /*** Main ***/
 int main(int argc, char **argv, char **envp) {
     Bool listenOnly = FALSE;
@@ -433,12 +487,15 @@ int main(int argc, char **argv, char **envp) {
     mach_port_t mp;
     kern_return_t kr;
 
-    // The server must not run the PanoramiX operations.
+    /* Setup our environment for our children */
+    setup_env();
+    
+    /* The server must not run the PanoramiX operations. */
     noPanoramiXExtension = TRUE;
 
     /* Setup the initial crasherporter info */
     strlcpy(__crashreporter_info__, __crashreporter_info__base, __crashreporter_info__len);
-
+    
     fprintf(stderr, "X11.app: main(): argc=%d\n", argc);
     for(i=0; i < argc; i++) {
         fprintf(stderr, "\targv[%u] = %s\n", (unsigned)i, argv[i]);
@@ -447,9 +504,9 @@ int main(int argc, char **argv, char **envp) {
         }
     }
 
-    mp = checkin_or_register(SERVER_BOOTSTRAP_NAME);
+    mp = checkin_or_register(server_bootstrap_name);
     if(mp == MACH_PORT_NULL) {
-        fprintf(stderr, "NULL mach service: %s", SERVER_BOOTSTRAP_NAME);
+        fprintf(stderr, "NULL mach service: %s", server_bootstrap_name);
         return EXIT_FAILURE;
     }
     
@@ -472,33 +529,19 @@ int main(int argc, char **argv, char **envp) {
     
     return EXIT_SUCCESS;
 }
-#else
 
-void *add_launchd_display_thread(void *data) {
-    /* Start listening on the launchd fd */
-    int launchd_fd = launchd_display_fd();
-    if(launchd_fd != -1) {
-        DarwinListenOnOpenFD(launchd_fd);
-    }
-    return NULL;
-}
-#endif
-    
 static int execute(const char *command) {
-    const char *newargv[7];
-    const char **s;
-
-    newargv[0] = "/usr/bin/login";
-    newargv[1] = "-fp";
-    newargv[2] = getlogin();
-    newargv[3] = command_from_prefs("login_shell", DEFAULT_SHELL);
-    newargv[4] = "-c";
-    newargv[5] = command;
-    newargv[6] = NULL;
+    const char *newargv[4];
+    const char **p;
+    
+    newargv[0] = command_from_prefs("login_shell", DEFAULT_SHELL);
+    newargv[1] = "-c";
+    newargv[2] = command;
+    newargv[3] = NULL;
     
     fprintf(stderr, "X11.app: Launching %s:\n", command);
-    for(s=newargv; *s; s++) {
-        fprintf(stderr, "\targv[%ld] = %s\n", (long int)(s - newargv), *s);
+    for(p=newargv; *p; p++) {
+        fprintf(stderr, "\targv[%ld] = %s\n", (long int)(p - newargv), *p);
     }
 
     execvp (newargv[0], (char * const *) newargv);

@@ -39,7 +39,6 @@
 #include "scrnintstr.h"
 #include "windowstr.h"
 #include "dri2.h"
-#include <GL/internal/dri_sarea.h>
 
 #include "xf86.h"
 
@@ -56,14 +55,19 @@ typedef struct _DRI2Drawable {
     int			 height;
     DRI2BufferPtr	 buffers;
     int			 bufferCount;
+    unsigned int	 pendingSequence;
 } DRI2DrawableRec, *DRI2DrawablePtr;
 
 typedef struct _DRI2Screen {
     const char			*driverName;
+    const char			*deviceName;
     int				 fd;
+    unsigned int		 lastSequence;
     DRI2CreateBuffersProcPtr	 CreateBuffers;
     DRI2DestroyBuffersProcPtr	 DestroyBuffers;
-    DRI2SwapBuffersProcPtr	 SwapBuffers;
+    DRI2CopyRegionProcPtr	 CopyRegion;
+
+    HandleExposuresProcPtr       HandleExposures;
 } DRI2ScreenRec, *DRI2ScreenPtr;
 
 static DRI2ScreenPtr
@@ -154,28 +158,34 @@ DRI2GetBuffers(DrawablePtr pDraw, int *width, int *height,
     return pPriv->buffers;
 }
 
-void
-DRI2SwapBuffers(DrawablePtr pDraw, int x, int y, int width, int height)
+int
+DRI2CopyRegion(DrawablePtr pDraw, RegionPtr pRegion,
+	       unsigned int dest, unsigned int src)
 {
     DRI2ScreenPtr   ds = DRI2GetScreen(pDraw->pScreen);
     DRI2DrawablePtr pPriv;
-    DRI2BufferPtr   pSrcBuffer;
+    DRI2BufferPtr   pDestBuffer, pSrcBuffer;
     int		    i;
 
     pPriv = DRI2GetDrawable(pDraw);
     if (pPriv == NULL)
-	return;
+	return BadDrawable;
 
+    pDestBuffer = NULL;
     pSrcBuffer = NULL;
     for (i = 0; i < pPriv->bufferCount; i++)
     {
-	if (pPriv->buffers[i].attachment == DRI2_BUFFER_BACK_LEFT)
+	if (pPriv->buffers[i].attachment == dest)
+	    pDestBuffer = &pPriv->buffers[i];
+	if (pPriv->buffers[i].attachment == src)
 	    pSrcBuffer = &pPriv->buffers[i];
     }
-    if (pSrcBuffer == NULL)
-	return;
+    if (pSrcBuffer == NULL || pDestBuffer == NULL)
+	return BadValue;
 		
-    (*ds->SwapBuffers)(pDraw, pSrcBuffer, x, y, width, height);
+    (*ds->CopyRegion)(pDraw, pRegion, pDestBuffer, pSrcBuffer);
+
+    return Success;
 }
 
 void
@@ -210,21 +220,26 @@ DRI2DestroyDrawable(DrawablePtr pDraw)
 }
 
 Bool
-DRI2Connect(ScreenPtr pScreen, int *fd, const char **driverName)
+DRI2Connect(ScreenPtr pScreen, unsigned int driverType, int *fd,
+	    const char **driverName, const char **deviceName)
 {
     DRI2ScreenPtr ds = DRI2GetScreen(pScreen);
 
     if (ds == NULL)
 	return FALSE;
 
+    if (driverType != DRI2DriverDRI)
+	return BadValue;
+
     *fd = ds->fd;
     *driverName = ds->driverName;
+    *deviceName = ds->deviceName;
 
     return TRUE;
 }
 
 Bool
-DRI2AuthConnection(ScreenPtr pScreen, drm_magic_t magic)
+DRI2Authenticate(ScreenPtr pScreen, drm_magic_t magic)
 {
     DRI2ScreenPtr ds = DRI2GetScreen(pScreen);
 
@@ -245,9 +260,10 @@ DRI2ScreenInit(ScreenPtr pScreen, DRI2InfoPtr info)
 
     ds->fd	       = info->fd;
     ds->driverName     = info->driverName;
+    ds->deviceName     = info->deviceName;
     ds->CreateBuffers  = info->CreateBuffers;
     ds->DestroyBuffers = info->DestroyBuffers;
-    ds->SwapBuffers    = info->SwapBuffers;
+    ds->CopyRegion     = info->CopyRegion;
 
     dixSetPrivate(&pScreen->devPrivates, dri2ScreenPrivateKey, ds);
 

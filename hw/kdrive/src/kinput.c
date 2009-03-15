@@ -1127,11 +1127,9 @@ KdGetOptions (InputOption **options, char *string)
     InputOption     *newopt = NULL, **tmpo = NULL;
     int             tam_key = 0;
 
-    newopt = (InputOption *) xalloc(sizeof (InputOption));
+    newopt = xcalloc(1, sizeof (InputOption));
     if (!newopt)
         return FALSE;
-
-    bzero(newopt, sizeof (InputOption));
 
     for (tmpo = options; *tmpo; tmpo = &(*tmpo)->next)
         ; /* Hello, I'm here */ 
@@ -1294,7 +1292,7 @@ KdParsePointer (char *arg)
         return NULL;
     pi->emulateMiddleButton = kdEmulateMiddleButton;
     pi->transformCoordinates = !kdRawPointerCoordinates;
-    pi->nButtons = 3;
+    pi->nButtons = 5; /* XXX should not be hardcoded */
     pi->inputClass = KD_MOUSE;
 
     if (!arg)
@@ -1923,11 +1921,11 @@ KdCheckSpecialKeys(KdKeyboardInfo *ki, int type, int sym)
     case XK_BackSpace:
     case XK_Delete:
     case XK_KP_Delete:
-	/* 
+	/*
 	 * Set the dispatch exception flag so the server will terminate the
 	 * next time through the dispatch loop.
 	 */
-	if (kdDontZap == FALSE)
+	if (kdAllowZap || party_like_its_1989)
 	    dispatchException |= DE_TERMINATE;
 	break;
     }
@@ -2107,13 +2105,17 @@ KdEnqueuePointerEvent(KdPointerInfo *pi, unsigned long flags, int rx, int ry,
     if (flags & KD_MOUSE_DELTA)
     {
         if (x || y || z)
+        {
             dixflags = POINTER_RELATIVE | POINTER_ACCELERATE;
-    } else if (x != pi->dixdev->last.valuators[0] ||
-                y != pi->dixdev->last.valuators[1])
-            dixflags = POINTER_ABSOLUTE;
-
-    if (dixflags)
-        _KdEnqueuePointerEvent(pi, MotionNotify, x, y, z, 0, dixflags, FALSE);
+            _KdEnqueuePointerEvent(pi, MotionNotify, x, y, z, 0, dixflags, FALSE);
+        }
+    } else
+    {
+        dixflags = POINTER_ABSOLUTE;
+        if (x != pi->dixdev->last.valuators[0] ||
+            y != pi->dixdev->last.valuators[1])
+            _KdEnqueuePointerEvent(pi, MotionNotify, x, y, z, 0, dixflags, FALSE);
+    }
 
     buttons = flags;
 

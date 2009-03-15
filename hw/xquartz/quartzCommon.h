@@ -55,11 +55,11 @@ typedef struct {
 extern int              quartzEventWriteFD;
 
 // User preferences used by Quartz modes
-extern int              quartzRootless;
 extern int              quartzUseSysBeep;
 extern int              focusOnNewWindow;
 extern int              quartzUseAGL;
 extern int              quartzEnableKeyEquivalents;
+extern int              quartzFullscreenDisableHotkeys;
 
 // Other shared data
 extern int              quartzServerVisible;

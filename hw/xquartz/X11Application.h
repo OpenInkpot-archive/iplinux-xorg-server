@@ -56,7 +56,6 @@
 - (void) prefs_synchronize;
 
 - (OSX_BOOL) x_active;
-
 @end
 
 extern X11Application *X11App;
@@ -74,14 +73,14 @@ void X11ApplicationShowHideMenubar (int state);
 void X11ApplicationMain(int argc, char **argv, char **envp);
 
 extern int X11EnableKeyEquivalents;
-extern int quartzHasRoot, quartzEnableRootless;
-
-#define APP_PREFS "org.x.X11"
+extern int quartzHasRoot, quartzEnableRootless, quartzFullscreenMenu;
 
 #define PREFS_APPSMENU              "apps_menu"
 #define PREFS_FAKEBUTTONS           "enable_fake_buttons"
 #define PREFS_SYSBEEP               "enable_system_beep"
 #define PREFS_KEYEQUIVS             "enable_key_equivalents"
+#define PREFS_FULLSCREEN_HOTKEYS    "fullscreen_hotkeys"
+#define PREFS_FULLSCREEN_MENU       "fullscreen_menu"
 #define PREFS_SYNC_KEYMAP           "sync_keymap"
 #define PREFS_DEPTH                 "depth"
 #define PREFS_NO_AUTH               "no_auth"
@@ -93,8 +92,8 @@ extern int quartzHasRoot, quartzEnableRootless;
 #define PREFS_APPKIT_MODIFIERS      "appkit_modifiers"
 #define PREFS_WINDOW_ITEM_MODIFIERS "window_item_modifiers"
 #define PREFS_ROOTLESS              "rootless"
+#define PREFS_TEST_EXTENSIONS       "enable_test_extensions"
 #define PREFS_XP_OPTIONS            "xp_options"
-#define PREFS_ENABLE_STEREO         "enable_stereo"
 #define PREFS_LOGIN_SHELL           "login_shell"
 #define PREFS_CLICK_THROUGH         "wm_click_through"
 #define PREFS_FFM                   "wm_ffm"

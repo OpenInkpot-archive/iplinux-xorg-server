@@ -169,8 +169,6 @@ extern void MakeClientGrabPervious(ClientPtr /*client*/);
 extern void ListenOnOpenFD(int /* fd */, int /* noxauth */);
 #endif
 
-extern void AvailableClientInput(ClientPtr /* client */);
-
 extern CARD32 GetTimeInMillis(void);
 
 extern void AdjustWaitForDelay(
@@ -425,14 +423,6 @@ extern void ddxUseMsg(void);
     (_pxReq->length ? (otherReqTypePtr)_pxReq \
 		    : (otherReqTypePtr)(((CARD32*)_pxReq)+1))
 
-/* stuff for SkippedRequestsCallback */
-extern CallbackListPtr SkippedRequestsCallback;
-typedef struct {
-    xReqPtr req;
-    ClientPtr client;
-    int numskipped;
-} SkippedRequestInfoRec;
-
 /* stuff for ReplyCallback */
 extern CallbackListPtr ReplyCallback;
 typedef struct {
@@ -464,6 +454,11 @@ extern int xstrncasecmp(const char *s1, const char *s2, size_t n);
 #if NEED_STRCASESTR
 #define strcasestr xstrcasestr
 extern char *xstrcasestr(const char *s, const char *find);
+#endif
+
+#ifndef HAS_STRLCPY
+extern size_t strlcpy(char *dst, const char *src, size_t siz);
+extern size_t strlcat(char *dst, const char *src, size_t siz);
 #endif
 
 /* Logging. */
@@ -526,5 +521,7 @@ extern void VErrorF(const char *f, va_list args);
 extern void ErrorF(const char *f, ...) _printf_attribute(1,2);
 extern void Error(char *str);
 extern void LogPrintMarkers(void);
+
+extern void xorg_backtrace(void);
 
 #endif /* OS_H */

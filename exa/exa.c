@@ -314,6 +314,11 @@ exaCreatePixmap(ScreenPtr pScreen, int w, int h, int depth,
 
         datasize = h * paddedWidth;
 
+	/* Set this before driver hooks, to allow for !offscreen pixmaps.
+	 * !offscreen pixmaps have a valid pointer at all times.
+	 */
+	pPixmap->devPrivate.ptr = NULL;
+
         pExaPixmap->driverPriv = pExaScr->info->CreatePixmap(pScreen, datasize, 0);
         if (!pExaPixmap->driverPriv) {
              fbDestroyPixmap(pPixmap);
@@ -325,6 +330,8 @@ exaCreatePixmap(ScreenPtr pScreen, int w, int h, int depth,
         pExaPixmap->score = EXA_PIXMAP_SCORE_PINNED;
         pExaPixmap->fb_ptr = NULL;
         pExaPixmap->pDamage = NULL;
+        pExaPixmap->sys_ptr = pPixmap->devPrivate.ptr;
+
     } else {
         pExaPixmap->driverPriv = NULL;
         /* Scratch pixmaps may have w/h equal to zero, and may not be
@@ -754,6 +761,7 @@ exaCloseScreen(int i, ScreenPtr pScreen)
 	ps->Glyphs = pExaScr->SavedGlyphs;
 	ps->Trapezoids = pExaScr->SavedTrapezoids;
 	ps->Triangles = pExaScr->SavedTriangles;
+	ps->AddTraps = pExaScr->SavedAddTraps;
     }
 #endif
 
@@ -925,6 +933,9 @@ exaDriverInit (ScreenPtr		pScreen,
 
 	pExaScr->SavedTrapezoids = ps->Trapezoids;
 	ps->Trapezoids = exaTrapezoids;
+
+	pExaScr->SavedAddTraps = ps->AddTraps;
+	ps->AddTraps = ExaCheckAddTraps;
     }
 #endif
 

@@ -1,56 +1,66 @@
 /* main.m
- $Id: main.m,v 1.29 2007-04-07 20:39:03 jharper Exp $
- 
- Copyright (c) 2002 Apple Computer, Inc. All rights reserved. */
+   Copyright (c) 2002, 2008 Apple Computer, Inc. All rights reserved.
+
+   Permission is hereby granted, free of charge, to any person
+   obtaining a copy of this software and associated documentation files
+   (the "Software"), to deal in the Software without restriction,
+   including without limitation the rights to use, copy, modify, merge,
+   publish, distribute, sublicense, and/or sell copies of the Software,
+   and to permit persons to whom the Software is furnished to do so,
+   subject to the following conditions:
+
+   The above copyright notice and this permission notice shall be
+   included in all copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+   NONINFRINGEMENT.  IN NO EVENT SHALL THE ABOVE LISTED COPYRIGHT
+   HOLDER(S) BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+   WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+   DEALINGS IN THE SOFTWARE.
+
+   Except as contained in this notice, the name(s) of the above
+   copyright holders shall not be used in advertising or otherwise to
+   promote the sale, use or other dealings in this Software without
+   prior written authorization.
+ */
 
 #include "pbproxy.h"
 #import "x-selection.h"
 
 #include <pthread.h>
-
+#include <unistd.h>
 #include <X11/extensions/applewm.h>
-#include <HIServices/CoreDockServices.h>
 
-Display *x_dpy;
-int x_apple_wm_event_base, x_apple_wm_error_base;
+Display *xpbproxy_dpy;
+int xpbproxy_apple_wm_event_base, xpbproxy_apple_wm_error_base;
+int xpbproxy_xfixes_event_base, xpbproxy_xfixes_error_base;
+BOOL xpbproxy_have_xfixes;
 
-static int x_grab_count;
-static Bool x_grab_synced;
+extern char *display;
 
-static BOOL _is_active = YES;		/* FIXME: should query server */ 
-/*gstaplin: why? Is there a race?*/
+#ifdef STANDALONE_XPBPROXY
+BOOL xpbproxy_is_standalone = NO;
+#endif
 
-static x_selection *_selection_object;
-
-/* X11 code */
-static void x_error_shutdown(void);
-
-void x_grab_server (Bool sync) {
-    if (x_grab_count++ == 0) {
-        XGrabServer (x_dpy);
-    }
-    
-    if (sync && !x_grab_synced) {
-        XSync (x_dpy, False);
-        x_grab_synced = True;
-    }
-}
-
-void x_ungrab_server (void) {
-    if (--x_grab_count == 0) {
-        XUngrabServer (x_dpy);
-        XFlush (x_dpy);
-        x_grab_synced = False;
-    }
-}
+x_selection *_selection_object;
 
 static int x_io_error_handler (Display *dpy) {
     /* We lost our connection to the server. */
     
     TRACE ();
-    
-	x_error_shutdown ();
-    
+
+    /* trigger the thread to restart?
+     *   NO - this would be to a "deeper" problem, and restarts would just
+     *        make things worse...
+     */
+#ifdef STANDALONE_XPBPROXY
+    if(xpbproxy_is_standalone)
+        exit(EXIT_FAILURE);
+#endif
+
     return 0;
 }
 
@@ -58,99 +68,83 @@ static int x_error_handler (Display *dpy, XErrorEvent *errevent) {
     return 0;
 }
 
-static void x_init (void) {
-    x_dpy = XOpenDisplay (NULL);
-    if (x_dpy == NULL) {
-        fprintf (stderr, "can't open default display\n");
-        exit (1);
+static inline pthread_t create_thread(void *func, void *arg) {
+    pthread_attr_t attr;
+    pthread_t tid;
+    
+    pthread_attr_init(&attr);
+    pthread_attr_setscope(&attr, PTHREAD_SCOPE_SYSTEM);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_create(&tid, &attr, func, arg);
+    pthread_attr_destroy(&attr);
+    
+    return tid;
+}
+
+static void *xpbproxy_x_thread(void *args) {
+    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+    size_t i;
+
+    for(i=0, xpbproxy_dpy=NULL; !xpbproxy_dpy && i<5; i++) {
+        xpbproxy_dpy = XOpenDisplay(NULL);
+        
+        if(!xpbproxy_dpy && display) {
+            char _display[32];
+            snprintf(_display, sizeof(_display), ":%s", display);
+            setenv("DISPLAY", _display, TRUE);
+
+            xpbproxy_dpy=XOpenDisplay(_display);
+        }
+        if(!xpbproxy_dpy)
+            sleep(1);
+    }
+    
+    if (xpbproxy_dpy == NULL) {
+        fprintf (stderr, "xpbproxy: can't open default display\n");
+        [pool release];
+        return NULL;
     }
     
     XSetIOErrorHandler (x_io_error_handler);
     XSetErrorHandler (x_error_handler);
     
-    if (!XAppleWMQueryExtension (x_dpy, &x_apple_wm_event_base,
-                                 &x_apple_wm_error_base)) {
-        fprintf (stderr, "can't open AppleWM server extension\n");
-        exit (1);
+    if (!XAppleWMQueryExtension (xpbproxy_dpy, &xpbproxy_apple_wm_event_base,
+                                 &xpbproxy_apple_wm_error_base)) {
+        fprintf (stderr, "xpbproxy: can't open AppleWM server extension\n");
+        [pool release];
+        return NULL;
     }
     
-    XAppleWMSelectInput (x_dpy, AppleWMActivationNotifyMask |
+    xpbproxy_have_xfixes = XFixesQueryExtension(xpbproxy_dpy, &xpbproxy_xfixes_event_base, &xpbproxy_xfixes_error_base);
+    
+    XAppleWMSelectInput (xpbproxy_dpy, AppleWMActivationNotifyMask |
                          AppleWMPasteboardNotifyMask);
     
     _selection_object = [[x_selection alloc] init];
     
-    x_input_register ();
-    x_input_run ();
+    if(!xpbproxy_input_register()) {
+        [pool release];
+        return NULL;
+    }
 
-    [_selection_object set_clipboard_manager];
-    [_selection_object claim_clipboard];
+    [pool release];
+ 
+    xpbproxy_input_loop();
+    return NULL;
 }
 
-static void x_shutdown (void) {
-    /*gstaplin: signal_handler() calls this, and I don't think these are async-signal safe. */
-    /*TODO use a socketpair() to trigger a cleanup.  This is totally unsafe according to Jordan.  It's a segfault waiting to happen on a signal*/
-
-    [_selection_object release];
-    _selection_object = nil;
-
-    XCloseDisplay (x_dpy);
-    x_dpy = NULL;
-    exit(0); 
+BOOL xpbproxy_init (void) {
+    create_thread(xpbproxy_x_thread, NULL);
+    return TRUE;
 }
 
-static void x_error_shutdown (void) {
-    exit(1);
-}
-
-id x_selection_object (void) {
+id xpbproxy_selection_object (void) {
     return _selection_object;
 }
 
-Time x_current_timestamp (void) {
+Time xpbproxy_current_timestamp (void) {
     /* FIXME: may want to fetch a timestamp from the server.. */
     return CurrentTime;
-}
-
-
-/* Finding things */
-BOOL x_get_is_active (void) {
-    return _is_active;
-}
-
-void x_set_is_active (BOOL state) {    
-    if (_is_active == state)
-        return;
-
-    _is_active = state;
-}
-
-/* Startup */
-static void signal_handler (int sig) {
-    x_shutdown ();
-}
-
-int main (int argc, const char *argv[]) {
-    NSAutoreleasePool *pool;
-
-    pool = [[NSAutoreleasePool alloc] init];
-    
-    x_init ();
-    
-    signal (SIGINT, signal_handler);
-    signal (SIGTERM, signal_handler);
-    signal (SIGPIPE, SIG_IGN);
-    
-    while (1) {
-        NS_DURING
-        CFRunLoopRun ();
-        NS_HANDLER
-        NSString *s = [NSString stringWithFormat:@"%@ - %@",
-                       [localException name], [localException reason]];
-        fprintf(stderr, "quartz-wm: caught exception: %s\n", [s UTF8String]);
-        NS_ENDHANDLER
-    }		
-    
-    return 0;
 }
 
 void debug_printf (const char *fmt, ...) {

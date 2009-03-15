@@ -62,6 +62,7 @@ SOFTWARE.
 #define POINTER_RELATIVE (1 << 1)
 #define POINTER_ABSOLUTE (1 << 2)
 #define POINTER_ACCELERATE (1 << 3)
+#define POINTER_SCREEN (1 << 4) /* Data in screen coordinates */
 
 /*int constants for pointer acceleration schemes*/
 #define PtrAccelNoOp            0
@@ -69,7 +70,10 @@ SOFTWARE.
 #define PtrAccelLightweight     2
 #define PtrAccelDefault         PtrAccelPredictable
 
-#define MAX_VALUATORS 36 /* XXX from comment in dix/getevents.c */
+#define MAX_VALUATORS 36
+/* Maximum number of valuators, divided by six, rounded up, to get number
+ * of events. */
+#define MAX_VALUATOR_EVENTS 6
 
 #define NO_AXIS_LIMITS -1
 
@@ -92,27 +96,10 @@ SOFTWARE.
 
 /* Used for enter/leave and focus in/out semaphores */
 #define SEMAPHORE_FIELD_SET(win, dev, field) \
-{ \
-    FocusSemaphoresPtr sem; \
-    sem = (FocusSemaphoresPtr)dixLookupPrivate(&win->devPrivates, FocusPrivatesKey); \
-    sem->field[dev->id/8] |= (1 << (dev->id % 8)); \
-}
+    (win)->field[(dev)->id/8] |= (1 << ((dev)->id % 8)); \
 
 #define SEMAPHORE_FIELD_UNSET(win, dev, field) \
-{ \
-    FocusSemaphoresPtr sem; \
-    sem = (FocusSemaphoresPtr)dixLookupPrivate(&win->devPrivates, FocusPrivatesKey); \
-    sem->field[dev->id/8] &= ~(1 << (dev->id % 8)); \
-}
-
-#define ENTER_LEAVE_SEMAPHORE_SET(win, dev) \
-        SEMAPHORE_FIELD_SET(win, dev, enterleave);
-
-#define ENTER_LEAVE_SEMAPHORE_UNSET(win, dev) \
-        SEMAPHORE_FIELD_UNSET(win, dev, enterleave);
-
-#define ENTER_LEAVE_SEMAPHORE_ISSET(win, dev) \
-    ((FocusSemaphoresPtr)dixLookupPrivate(&win->devPrivates, FocusPrivatesKey))->enterleave[dev->id/8] & (1 << (dev->id % 8))
+    (win)->field[(dev)->id/8] &= ~(1 << ((dev)->id % 8));
 
 #define FOCUS_SEMAPHORE_SET(win, dev) \
         SEMAPHORE_FIELD_SET(win, dev, focusinout);
@@ -121,7 +108,7 @@ SOFTWARE.
         SEMAPHORE_FIELD_UNSET(win, dev, focusinout);
 
 #define FOCUS_SEMAPHORE_ISSET(win, dev) \
-    ((FocusSemaphoresPtr)dixLookupPrivate(&win->devPrivates, FocusPrivatesKey))->focusinout[dev->id/8] & (1 << (dev->id % 8))
+        (win)->focusinout[(dev)->id/8] & (1 << ((dev)->id % 8))
 
 typedef unsigned long Leds;
 typedef struct _OtherClients *OtherClientsPtr;
@@ -510,22 +497,11 @@ extern int GetMotionHistory(
     ScreenPtr pScreen,
     BOOL core);
 
-extern void SwitchCorePointer(DeviceIntPtr pDev);
-
-/* Pairing input devices */
-extern int PairDevices(ClientPtr client, 
-                       DeviceIntPtr pointer, 
-                       DeviceIntPtr keyboard);
 extern int AttachDevice(ClientPtr client,
                         DeviceIntPtr slave,
                         DeviceIntPtr master);
 
 extern DeviceIntPtr GetPairedDevice(DeviceIntPtr kbd);
-
-extern Bool RegisterPairingClient(ClientPtr client);
-
-extern DeviceIntPtr GuessFreePointerDevice(void);
-extern DeviceIntPtr NextFreePointerDevice(void);
 
 extern int AllocMasterDevice(ClientPtr client,
                              char* name,
@@ -533,36 +509,6 @@ extern int AllocMasterDevice(ClientPtr client,
                              DeviceIntPtr* keybd);
 extern void DeepCopyDeviceClasses(DeviceIntPtr from,
                                   DeviceIntPtr to);
-
-extern void FreeDeviceClass(int type, pointer* class);
-extern void FreeFeedbackClass(int type, pointer* class);
-extern void FreeAllDeviceClasses(ClassesPtr classes);
-extern int EnterLeaveSemaphoresIsset(WindowPtr win);
-extern int FocusSemaphoresIsset(WindowPtr win);
-
-/* Window/device based access control */
-extern Bool ACRegisterClient(ClientPtr client);
-extern Bool ACUnregisterClient(ClientPtr client);
-extern int ACClearWindowAccess(ClientPtr client,
-                        WindowPtr win,
-                        int what);
-extern int ACChangeWindowAccess(ClientPtr client, 
-                                WindowPtr win, 
-                                int defaultRule,
-                                DeviceIntPtr* perm_devices,
-                                int npermit,
-                                DeviceIntPtr* deny_devices,
-                                int ndeny);
-extern void ACQueryWindowAccess(WindowPtr win, 
-                                int* defaultRule,
-                                DeviceIntPtr** perm,
-                                int* nperm,
-                                DeviceIntPtr** deny,
-                                int* ndeny);
-
-extern Bool ACDeviceAllowed(WindowPtr win, 
-                            DeviceIntPtr dev,
-                            xEvent* xE);
 
 /* Implemented by the DDX. */
 extern int NewInputDeviceRequest(

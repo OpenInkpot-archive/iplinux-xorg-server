@@ -32,6 +32,8 @@
 #include "Pci.h"
 #ifdef _X86EMU
 #include "x86emu/x86emui.h"
+#else
+#define DEBUG_IO_TRACE() 0
 #endif
 #include <pciaccess.h>
 
@@ -478,22 +480,11 @@ pci_device_for_cfg_address (CARD32 addr)
 
 	struct pci_device_iterator *iter =
 	    pci_slot_match_iterator_create (&slot_match);
+
 	if (iter)
 		dev = pci_device_next(iter);
-	if (!dev) {
-		char buf[128]; /* enough to store "%u@%u" */
-		xf86FormatPciBusNumber(tag >> 16, buf);
-		ErrorF("Failed to find device matching %s:%u:%u\n",
-				buf, slot_match.dev, slot_match.func);
-		return NULL;
-	}
 
-	if (pci_device_next(iter)) {
-		char buf[128]; /* enough to store "%u@%u" */
-		xf86FormatPciBusNumber(tag >> 16, buf);
-		ErrorF("Multiple devices matching %s:%u:%u\n",
-				buf, slot_match.dev, slot_match.func);
-	}
+	pci_iterator_destroy(iter);
 
 	return dev;
 }

@@ -61,6 +61,8 @@
 #include "xf86Optrec.h"
 #include "mipointer.h"
 #include "xf86InPriv.h"
+#include "compiler.h"
+#include "extinit.h"
 
 #ifdef DPMSExtension
 #define DPMS_SERVER
@@ -86,6 +88,10 @@
 
 #ifdef XFreeXDGA
 #include "dgaproc.h"
+#endif
+
+#ifdef XKB
+#include "xkbsrv.h"
 #endif
 
 #include "os.h"
@@ -124,7 +130,7 @@ ProcessVelocityConfiguration(char* devname, pointer list, DeviceVelocityPtr s){
 	xf86Msg(X_CONFIG, "%s: (accel) filter stage %i: %.2f ms\n",
                 devname, i, 1.0f / (s->filters[i].rdecay));
 
-    tempf = xf86SetIntOption(list, "ConstantDeceleration", 1);
+    tempf = xf86SetRealOption(list, "ConstantDeceleration", 1.0);
     if(tempf > 1.0){
         xf86Msg(X_CONFIG, "%s: (accel) constant deceleration by %.1f\n",
                 devname, tempf);
@@ -132,7 +138,7 @@ ProcessVelocityConfiguration(char* devname, pointer list, DeviceVelocityPtr s){
                                                   alias acceleration */
     }
 
-    tempf = xf86SetIntOption(list, "AdaptiveDeceleration", 1);
+    tempf = xf86SetRealOption(list, "AdaptiveDeceleration", 1.0);
     if(tempf > 1.0){
         xf86Msg(X_CONFIG, "%s: (accel) adaptive deceleration by %.1f\n",
                 devname, tempf);
@@ -281,12 +287,13 @@ xf86ProcessCommonOptions(LocalDevicePtr local,
 /***********************************************************************
  *
  * xf86ActivateDevice --
- * 
+ *
  *	Initialize an input device.
  *
+ * Returns TRUE on success, or FALSE otherwise.
  ***********************************************************************
  */
-_X_EXPORT void
+_X_EXPORT int
 xf86ActivateDevice(LocalDevicePtr local)
 {
     DeviceIntPtr	dev;
@@ -295,8 +302,13 @@ xf86ActivateDevice(LocalDevicePtr local)
         dev = AddInputDevice(serverClient, local->device_control, TRUE);
 
         if (dev == NULL)
-            FatalError("Too many input devices");
-        
+        {
+            xf86Msg(X_ERROR, "Too many input devices. Ignoring %s\n",
+                    local->name);
+            local->dev = NULL;
+            return FALSE;
+        }
+
         local->atom = MakeAtom(local->type_name,
                                strlen(local->type_name),
                                TRUE);
@@ -328,6 +340,8 @@ xf86ActivateDevice(LocalDevicePtr local)
             xf86Msg(X_INFO, "XINPUT: Adding extended input device \"%s\" (type: %s)\n",
                     local->name, local->type_name);
     }
+
+    return TRUE;
 }
 
 
@@ -461,14 +475,102 @@ AddOtherInputDevices()
 {
 }
 
-int
+/**
+ * Create a new input device, activate and enable it.
+ *
+ * Possible return codes:
+ *    BadName .. a bad driver name was supplied.
+ *    BadImplementation ... The driver does not have a PreInit function. This
+ *                          is a driver bug.
+ *    BadMatch .. device initialization failed.
+ *    BadAlloc .. too many input devices
+ *
+ * @param idev The device, already set up with identifier, driver, and the
+ * options.
+ * @param pdev Pointer to the new device, if Success was reported.
+ * @param enable Enable the device after activating it.
+ *
+ * @return Success or an error code
+ */
+_X_INTERNAL int
+xf86NewInputDevice(IDevPtr idev, DeviceIntPtr *pdev, BOOL enable)
+{
+    InputDriverPtr drv = NULL;
+    InputInfoPtr pInfo = NULL;
+    DeviceIntPtr dev = NULL;
+    int rval;
+
+    /* Memory leak for every attached device if we don't
+     * test if the module is already loaded first */
+    drv = xf86LookupInputDriver(idev->driver);
+    if (!drv)
+        if (xf86LoadOneModule(idev->driver, NULL))
+            drv = xf86LookupInputDriver(idev->driver);
+    if (!drv) {
+        xf86Msg(X_ERROR, "No input driver matching `%s'\n", idev->driver);
+        rval = BadName;
+        goto unwind;
+    }
+
+    if (!drv->PreInit) {
+        xf86Msg(X_ERROR,
+                "Input driver `%s' has no PreInit function (ignoring)\n",
+                drv->driverName);
+        rval = BadImplementation;
+        goto unwind;
+    }
+
+    pInfo = drv->PreInit(drv, idev, 0);
+
+    if (!pInfo) {
+        xf86Msg(X_ERROR, "PreInit returned NULL for \"%s\"\n", idev->identifier);
+        rval = BadMatch;
+        goto unwind;
+    }
+    else if (!(pInfo->flags & XI86_CONFIGURED)) {
+        xf86Msg(X_ERROR, "PreInit failed for input device \"%s\"\n",
+                idev->identifier);
+        rval = BadMatch;
+        goto unwind;
+    }
+
+    if (!xf86ActivateDevice(pInfo))
+    {
+        rval = BadAlloc;
+        goto unwind;
+    }
+
+    dev = pInfo->dev;
+    rval = ActivateDevice(dev);
+    if (rval != Success)
+        goto unwind;
+
+    /* Enable it if it's properly initialised and we're currently in the VT */
+    if (enable && dev->inited && dev->startup && xf86Screens[0]->vtSema)
+    {
+        EnableDevice(dev);
+        /* send enter/leave event, update sprite window */
+        CheckMotion(NULL, dev);
+    }
+
+    *pdev = dev;
+    return Success;
+
+unwind:
+    if(pInfo) {
+        if(drv->UnInit)
+            drv->UnInit(drv, pInfo, 0);
+        else
+            xf86DeleteInput(pInfo, 0);
+    }
+    return rval;
+}
+
+_X_EXPORT int
 NewInputDeviceRequest (InputOption *options, DeviceIntPtr *pdev)
 {
     IDevRec *idev = NULL;
-    InputDriverPtr drv = NULL;
-    InputInfoPtr pInfo = NULL;
     InputOption *option = NULL;
-    DeviceIntPtr dev = NULL;
     int rval = Success;
     int is_auto = 0;
 
@@ -480,18 +582,6 @@ NewInputDeviceRequest (InputOption *options, DeviceIntPtr *pdev)
         if (strcasecmp(option->key, "driver") == 0) {
             if (idev->driver) {
                 rval = BadRequest;
-                goto unwind;
-            }
-            /* Memory leak for every attached device if we don't
-             * test if the module is already loaded first */
-            drv = xf86LookupInputDriver(option->value);
-            if (!drv)
-                if (xf86LoadOneModule(option->value, NULL))
-                    drv = xf86LookupInputDriver(option->value);
-            if (!drv) {
-                xf86Msg(X_ERROR, "No input driver matching `%s'\n",
-                        option->value);
-                rval = BadName;
                 goto unwind;
             }
             idev->driver = xstrdup(option->value);
@@ -531,22 +621,9 @@ NewInputDeviceRequest (InputOption *options, DeviceIntPtr *pdev)
         goto unwind;
     }
 
-    if (!drv) {
-        xf86Msg(X_ERROR, "No input driver specified (ignoring)\n");
-        return BadMatch;
-    }
-
     if (!idev->identifier) {
         xf86Msg(X_ERROR, "No device identifier specified (ignoring)\n");
         return BadMatch;
-    }
-
-    if (!drv->PreInit) {
-        xf86Msg(X_ERROR,
-                "Input driver `%s' has no PreInit function (ignoring)\n",
-                drv->driverName);
-        rval = BadImplementation;
-        goto unwind;
     }
 
     for (option = options; option; option = option->next) {
@@ -558,43 +635,12 @@ NewInputDeviceRequest (InputOption *options, DeviceIntPtr *pdev)
         option->value = NULL;
     }
 
-    pInfo = drv->PreInit(drv, idev, 0);
-
-    if (!pInfo) {
-        xf86Msg(X_ERROR, "PreInit returned NULL for \"%s\"\n", idev->identifier);
-        rval = BadMatch;
-        goto unwind;
-    }
-    else if (!(pInfo->flags & XI86_CONFIGURED)) {
-        xf86Msg(X_ERROR, "PreInit failed for input device \"%s\"\n",
-                idev->identifier);
-        rval = BadMatch;
-        goto unwind;
-    }
-
-    xf86ActivateDevice(pInfo);
-
-    dev = pInfo->dev;
-    ActivateDevice(dev);
-    /* Enable it if it's properly initialised, we're currently in the VT, and
-     * either it's a manual request, or we're automatically enabling devices. */
-    if (dev->inited && dev->startup && xf86Screens[0]->vtSema &&
-        (!is_auto || xf86Info.autoEnableDevices))
-        EnableDevice(dev);
-
-    /* send enter/leave event, update sprite window */
-    CheckMotion(NULL, dev);
-
-    *pdev = dev;
-    return Success;
+    rval = xf86NewInputDevice(idev, pdev,
+                (!is_auto || (is_auto && xf86Info.autoEnableDevices)));
+    if (rval == Success)
+        return Success;
 
 unwind:
-    if(pInfo) {
-        if(drv->UnInit)
-            drv->UnInit(drv, pInfo, 0);
-        else
-            xf86DeleteInput(pInfo, 0);
-    }
     if(idev->driver)
         xfree(idev->driver);
     if(idev->identifier)
@@ -604,13 +650,14 @@ unwind:
     return rval;
 }
 
-void
+_X_EXPORT void
 DeleteInputDeviceRequest(DeviceIntPtr pDev)
 {
     LocalDevicePtr pInfo = (LocalDevicePtr) pDev->public.devicePrivate;
-    InputDriverPtr drv;
-    IDevRec *idev;
+    InputDriverPtr drv = NULL;
+    IDevRec *idev = NULL;
     IDevPtr *it;
+    Bool isMaster = pDev->isMaster;
 
     if (pInfo) /* need to get these before RemoveDevice */
     {
@@ -621,7 +668,7 @@ DeleteInputDeviceRequest(DeviceIntPtr pDev)
     OsBlockSignals();
     RemoveDevice(pDev);
 
-    if (!pDev->isMaster)
+    if (!isMaster)
     {
         if(drv->UnInit)
             drv->UnInit(drv, pInfo, 0);
@@ -660,8 +707,8 @@ xf86PostMotionEvent(DeviceIntPtr	device,
     static int valuators[MAX_VALUATORS];
 
     if (num_valuators > MAX_VALUATORS) {
-	xf86Msg(X_ERROR, "xf86PostMotionEvent: num_valuator %d"
-	    " is greater than MAX_VALUATORS\n", num_valuators);
+	xf86Msg(X_ERROR, "%s: num_valuator %d is greater than"
+	    " MAX_VALUATORS\n", __FUNCTION__, num_valuators);
 	return;
     }
 
@@ -688,8 +735,8 @@ xf86PostMotionEventP(DeviceIntPtr	device,
     int flags = 0;
 
     if (num_valuators > MAX_VALUATORS) {
-	xf86Msg(X_ERROR, "xf86PostMotionEvent: num_valuator %d"
-	    " is greater than MAX_VALUATORS\n", num_valuators);
+	xf86Msg(X_ERROR, "%s: num_valuator %d is greater than"
+	    " MAX_VALUATORS\n", __FUNCTION__, num_valuators);
 	return;
     }
 
@@ -751,8 +798,8 @@ xf86PostProximityEvent(DeviceIntPtr	device,
 
 
     if (num_valuators > MAX_VALUATORS) {
-	xf86Msg(X_ERROR, "xf86PostMotionEvent: num_valuator %d"
-	    " is greater than MAX_VALUATORS\n", num_valuators);
+	xf86Msg(X_ERROR, "%s: num_valuator %d is greater than"
+	    " MAX_VALUATORS\n", __FUNCTION__, num_valuators);
 	return;
     }
 
@@ -792,8 +839,8 @@ xf86PostButtonEvent(DeviceIntPtr	device,
     }
 #endif
     if (num_valuators > MAX_VALUATORS) {
-	xf86Msg(X_ERROR, "xf86PostMotionEvent: num_valuator %d"
-	    " is greater than MAX_VALUATORS\n", num_valuators);
+	xf86Msg(X_ERROR, "%s: num_valuator %d is greater than"
+	    " MAX_VALUATORS\n", __FUNCTION__, num_valuators);
 	return;
     }
 
@@ -832,8 +879,8 @@ xf86PostKeyEvent(DeviceIntPtr	device,
            "broken.\n");
 
     if (num_valuators > MAX_VALUATORS) {
-	xf86Msg(X_ERROR, "xf86PostMotionEvent: num_valuator %d"
-	    " is greater than MAX_VALUATORS\n", num_valuators);
+	xf86Msg(X_ERROR, "%s: num_valuator %d is greater than"
+	    " MAX_VALUATORS\n", __FUNCTION__, num_valuators);
 	return;
     }
 
@@ -928,9 +975,9 @@ xf86ScaleAxis(int	Cx,
     }
     
     if (X > Sxhigh)
-	X = Sxlow;
-    if (X < Sxlow)
 	X = Sxhigh;
+    if (X < Sxlow)
+	X = Sxlow;
     
     return (X);
 }

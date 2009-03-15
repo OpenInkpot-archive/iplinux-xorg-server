@@ -122,8 +122,6 @@ IsPointerEvent(xEvent* xE)
             if (xE->u.u.type == DeviceButtonPress ||
                 xE->u.u.type == DeviceButtonRelease ||
                 xE->u.u.type == DeviceMotionNotify ||
-                xE->u.u.type == DeviceEnterNotify ||
-                xE->u.u.type == DeviceLeaveNotify ||
                 xE->u.u.type == ProximityIn ||
                 xE->u.u.type == ProximityOut)
             {
@@ -132,6 +130,35 @@ IsPointerEvent(xEvent* xE)
     }
     return FALSE;
 }
+
+/**
+ * @return the device matching the deviceid of the device set in the event, or
+ * NULL if the event is not an XInput event.
+ */
+DeviceIntPtr
+XIGetDevice(xEvent* xE)
+{
+    DeviceIntPtr pDev = NULL;
+
+    if (xE->u.u.type == DeviceButtonPress ||
+        xE->u.u.type == DeviceButtonRelease ||
+        xE->u.u.type == DeviceMotionNotify ||
+        xE->u.u.type == ProximityIn ||
+        xE->u.u.type == ProximityOut ||
+        xE->u.u.type == DevicePropertyNotify)
+    {
+        int rc;
+        int id;
+
+        id = ((deviceKeyButtonPointer*)xE)->deviceid & ~MORE_EVENTS;
+
+        rc = dixLookupDevice(&pDev, id, serverClient, DixUnknownAccess);
+        if (rc != Success)
+            ErrorF("[dix] XIGetDevice failed on XACE restrictions (%d)\n", rc);
+    }
+    return pDev;
+}
+
 
 /**
  * Copy the device->key into master->key and send a mapping notify to the
@@ -159,7 +186,7 @@ IsPointerEvent(xEvent* xE)
  * This code is basically the old SwitchCoreKeyboard.
  */
 
-static void
+void
 CopyKeyClass(DeviceIntPtr device, DeviceIntPtr master)
 {
     static DeviceIntPtr lastMapNotifyDevice = NULL;
@@ -527,8 +554,6 @@ DeepCopyDeviceClasses(DeviceIntPtr from, DeviceIntPtr to)
         oldXkbInfo      = to->key->xkbInfo;
 #endif
 
-        memcpy(to->key, from->key, sizeof(KeyClassRec));
-
         if (!oldMap) /* newly created key struct */
         {
             int bytes = (to->key->curKeySyms.maxKeyCode -
@@ -713,41 +738,6 @@ DeepCopyDeviceClasses(DeviceIntPtr from, DeviceIntPtr to)
     }
 }
 
-/**
- * Change MD to look like SD by copying all classes over. An event is sent to
- * all interested clients.
- * @param device The slave device
- * @param dcce Pointer to the event struct.
- */
-static void
-ChangeMasterDeviceClasses(DeviceIntPtr device,
-                          deviceClassesChangedEvent *dcce)
-{
-    DeviceIntPtr master = device->u.master;
-    char* classbuff;
-
-    if (device->isMaster)
-        return;
-
-    if (!master) /* if device was set floating between SIGIO and now */
-        return;
-
-    dcce->deviceid     = master->id;
-    dcce->num_classes  = 0;
-
-    master->public.devicePrivate = device->public.devicePrivate;
-
-    DeepCopyDeviceClasses(device, master);
-
-    /* event is already correct size, see comment in GetPointerEvents */
-    classbuff = (char*)&dcce[1];
-
-    /* we don't actually swap if there's a NullClient, swapping is done
-     * later when event is delivered. */
-    CopySwapClasses(NullClient, master, &dcce->num_classes, &classbuff);
-    SendEventToAllWindows(master, XI_DeviceClassesChangedMask,
-                          (xEvent*)dcce, 1);
-}
 
 /**
  * Update the device state according to the data in the event.
@@ -775,16 +765,6 @@ UpdateDeviceState(DeviceIntPtr device, xEvent* xE, int count)
     CARD16 modifiers    = 0,
            mask         = 0;
 
-    /* This event is always the first we get, before the actual events with
-     * the data. However, the way how the DDX is set up, "device" will
-     * actually be the slave device that caused the event.
-     */
-    if (GEIsType(xE, IReqCode, XI_DeviceClassesChangedNotify))
-    {
-        ChangeMasterDeviceClasses(device, (deviceClassesChangedEvent*)xE);
-        return DONT_PROCESS; /* event has been sent already */
-    }
-
     /* currently no other generic event modifies the device */
     if (xE->u.u.type == GenericEvent)
         return DEFAULT;
@@ -801,11 +781,13 @@ UpdateDeviceState(DeviceIntPtr device, xEvent* xE, int count)
     }
 
     /* Update device axis */
-    for (i = 1; i < count; i++) {
+    /* Don't update valuators for the VCP, it never sends XI events anyway */
+    for (i = 1; !device->isMaster && i < count; i++) {
 	if ((++xV)->type == DeviceValuator) {
 	    int *axisvals;
             int first = xV->first_valuator;
             BOOL change = FALSE;
+
 
 	    if (xV->num_valuators &&
                 (!v || (xV->num_valuators &&
@@ -822,8 +804,8 @@ UpdateDeviceState(DeviceIntPtr device, xEvent* xE, int count)
                  *      dev = event
                  *      event = delta
                  */
-		axisvals = v->axisVal;
                 int delta;
+                axisvals = v->axisVal;
                 if (v->mode == Relative) /* device reports relative */
                     change = TRUE;
 
@@ -913,10 +895,10 @@ UpdateDeviceState(DeviceIntPtr device, xEvent* xE, int count)
         *kptr |= bit;
 	if (device->valuator)
 	    device->valuator->motionHintWindow = NullWindow;
-        b->buttonsDown++;
-	b->motionMask = DeviceButtonMotionMask;
         if (!b->map[key])
             return DONT_PROCESS;
+        b->buttonsDown++;
+	b->motionMask = DeviceButtonMotionMask;
         if (b->map[key] <= 5)
 	    b->state |= (Button1Mask >> 1) << b->map[key];
 	SetMaskForEvent(device->id, Motion_Filter(b), DeviceMotionNotify);
@@ -945,10 +927,10 @@ UpdateDeviceState(DeviceIntPtr device, xEvent* xE, int count)
         *kptr &= ~bit;
 	if (device->valuator)
 	    device->valuator->motionHintWindow = NullWindow;
-        if (b->buttonsDown >= 1 && !--b->buttonsDown)
-	    b->motionMask = 0;
         if (!b->map[key])
             return DONT_PROCESS;
+        if (b->buttonsDown >= 1 && !--b->buttonsDown)
+	    b->motionMask = 0;
 	if (b->map[key] <= 5)
 	    b->state &= ~((Button1Mask >> 1) << b->map[key]);
 	SetMaskForEvent(device->id, Motion_Filter(b), DeviceMotionNotify);
@@ -1029,7 +1011,9 @@ ProcessOtherEvent(xEventPtr xE, DeviceIntPtr device, int count)
     }
 
     /* Valuator event handling */
-    for (i = 1; i < count; i++) {
+    /* Don't care about valuators for the VCP, it never sends XI events */
+
+    for (i = 1; !device->isMaster && i < count; i++) {
 	if ((++xV)->type == DeviceValuator) {
 	    int first = xV->first_valuator;
 	    if (xV->num_valuators
@@ -1085,7 +1069,7 @@ ProcessOtherEvent(xEventPtr xE, DeviceIntPtr device, int count)
 	    xE->u.u.detail = key;
 	    return;
 	}
-        if (!b->state && device->deviceGrab.fromPassiveGrab)
+        if (!b->buttonsDown && device->deviceGrab.fromPassiveGrab)
             deactivateDeviceGrab = TRUE;
     }
 
@@ -1154,11 +1138,9 @@ FixDeviceStateNotify(DeviceIntPtr dev, deviceStateNotify * ev, KeyClassPtr k,
     ev->num_valuators = 0;
 
     if (b) {
-	int i;
 	ev->classes_reported |= (1 << ButtonClass);
 	ev->num_buttons = b->numButtons;
-	for (i = 0; i < 32; i++)
-	    SetBitIf(ev->buttons, b->down, i);
+	memcpy((char*)ev->buttons, (char*)b->down, 4);
     } else if (k) {
 	ev->classes_reported |= (1 << KeyClass);
 	ev->num_keys = k->curKeySyms.maxKeyCode - k->curKeySyms.minKeyCode;
@@ -1273,13 +1255,11 @@ DeviceFocusEvent(DeviceIntPtr dev, int type, int mode, int detail,
 	    first += 3;
 	    nval -= 3;
 	    if (nbuttons > 32) {
-		int i;
 		(ev - 1)->deviceid |= MORE_EVENTS;
 		bev = (deviceButtonStateNotify *) ev++;
 		bev->type = DeviceButtonStateNotify;
 		bev->deviceid = dev->id;
-		for (i = 32; i < MAP_LENGTH; i++)
-		    SetBitIf(bev->buttons, b->down, i);
+		memcpy((char*)&bev->buttons[4], (char*)&b->down[4], DOWN_LENGTH - 4);
 	    }
 	    if (nval > 0) {
 		(ev - 1)->deviceid |= MORE_EVENTS;
@@ -1516,12 +1496,11 @@ AddExtensionClient(WindowPtr pWin, ClientPtr client, Mask mask, int mskidx)
 
     if (!pWin->optional && !MakeWindowOptional(pWin))
 	return BadAlloc;
-    others = (InputClients *) xalloc(sizeof(InputClients));
+    others = xcalloc(1, sizeof(InputClients));
     if (!others)
 	return BadAlloc;
     if (!pWin->optional->inputMasks && !MakeInputMasks(pWin))
 	return BadAlloc;
-    bzero((char *)&others->mask[0], sizeof(Mask) * EMASKSIZE);
     others->mask[mskidx] = mask;
     others->resource = FakeClientID(client->index);
     others->next = pWin->optional->inputMasks->inputClients;
@@ -1536,11 +1515,9 @@ MakeInputMasks(WindowPtr pWin)
 {
     struct _OtherInputMasks *imasks;
 
-    imasks = (struct _OtherInputMasks *)
-	xalloc(sizeof(struct _OtherInputMasks));
+    imasks = xcalloc(1, sizeof(struct _OtherInputMasks));
     if (!imasks)
 	return FALSE;
-    bzero((char *)imasks, sizeof(struct _OtherInputMasks));
     pWin->optional->inputMasks = imasks;
     return TRUE;
 }
@@ -1697,7 +1674,7 @@ SetButtonMapping(ClientPtr client, DeviceIntPtr dev, int nElts, BYTE * map)
     if (BadDeviceMap(&map[0], nElts, 1, 255, &client->errorValue))
 	return BadValue;
     for (i = 0; i < nElts; i++)
-	if ((b->map[i + 1] != map[i]) && (b->down[i + 1]))
+	if ((b->map[i + 1] != map[i]) && BitIsOn(b->down, i + 1))
 	    return MappingBusy;
     for (i = 0; i < nElts; i++)
 	b->map[i + 1] = map[i];
@@ -2112,3 +2089,4 @@ SendEventToAllWindows(DeviceIntPtr dev, Mask mask, xEvent * ev, int count)
         FindInterestedChildren(dev, p1, mask, ev, count);
     }
 }
+

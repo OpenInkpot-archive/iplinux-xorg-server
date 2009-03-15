@@ -147,6 +147,7 @@ typedef struct {
     TrianglesProcPtr		 SavedTriangles;
     GlyphsProcPtr                SavedGlyphs;
     TrapezoidsProcPtr            SavedTrapezoids;
+    AddTrapsProcPtr		 SavedAddTraps;
 #endif
   
     Bool			 swappedOut;
@@ -331,6 +332,13 @@ ExaCheckGetSpans (DrawablePtr pDrawable,
 		 int nspans,
 		 char *pdstStart);
 
+void
+ExaCheckAddTraps (PicturePtr	pPicture,
+		  INT16		x_off,
+		  INT16		y_off,
+		  int		ntrap,
+		  xTrap		*traps);
+
 /* exa_accel.c */
 
 static _X_INLINE Bool
@@ -403,9 +411,6 @@ exaPixmapDirty(PixmapPtr pPix, int x1, int y1, int x2, int y2);
 void
 exaGetDrawableDeltas (DrawablePtr pDrawable, PixmapPtr pPixmap,
 		      int *xp, int *yp);
-
-Bool
-exaDrawableIsOffscreen (DrawablePtr pDrawable);
 
 Bool
 exaPixmapIsOffscreen(PixmapPtr p);

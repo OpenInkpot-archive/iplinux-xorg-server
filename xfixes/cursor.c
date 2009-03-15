@@ -111,7 +111,6 @@ typedef struct _CursorHideCountRec {
 
 typedef struct _CursorScreen {
     DisplayCursorProcPtr	DisplayCursor;
-    ChangeWindowAttributesProcPtr ChangeWindowAttributes;
     CloseScreenProcPtr		CloseScreen;
     CursorHideCountPtr          pCursorHideCounts;
 } CursorScreenRec, *CursorScreenPtr;
@@ -135,8 +134,16 @@ CursorDisplayCursor (DeviceIntPtr pDev,
 
     Unwrap (cs, pScreen, DisplayCursor);
 
+    /*
+     * Have to check ConnectionInfo to distinguish client requests from
+     * initial root window setup.  Not a great way to do it, I admit.
+     */
+    if (ConnectionInfo)
+	CursorVisible = TRUE;
+
     if (cs->pCursorHideCounts != NULL || !CursorVisible) {
-	ret = (*pScreen->DisplayCursor) (pDev, pScreen, pInvisibleCursor);
+        ret = ((*pScreen->RealizeCursor)(pDev, pScreen, pInvisibleCursor) &&
+	       (*pScreen->DisplayCursor) (pDev, pScreen, pInvisibleCursor));
     } else {
 	ret = (*pScreen->DisplayCursor) (pDev, pScreen, pCursor);
     }
@@ -168,27 +175,6 @@ CursorDisplayCursor (DeviceIntPtr pDev,
 }
 
 static Bool
-CursorChangeWindowAttributes(WindowPtr pWin, unsigned long mask)
-{
-    ScreenPtr           pScreen = pWin->drawable.pScreen;
-    CursorScreenPtr	cs = GetCursorScreen(pScreen);
-    Bool		ret;
-
-    /*
-     * Have to check ConnectionInfo to distinguish client requests from
-     * initial root window setup.  Not a great way to do it, I admit.
-     */
-    if ((mask & CWCursor) && ConnectionInfo)
-	CursorVisible = TRUE;
-
-    Unwrap(cs, pScreen, ChangeWindowAttributes);
-    ret = pScreen->ChangeWindowAttributes(pWin, mask);
-    Wrap(cs, pScreen, ChangeWindowAttributes, CursorChangeWindowAttributes);
-
-    return ret;
-}
-
-static Bool
 CursorCloseScreen (int index, ScreenPtr pScreen)
 {
     CursorScreenPtr	cs = GetCursorScreen (pScreen);
@@ -196,7 +182,6 @@ CursorCloseScreen (int index, ScreenPtr pScreen)
 
     Unwrap (cs, pScreen, CloseScreen);
     Unwrap (cs, pScreen, DisplayCursor);
-    Unwrap (cs, pScreen, ChangeWindowAttributes);
     deleteCursorHideCountsForScreen(pScreen);
     ret = (*pScreen->CloseScreen) (index, pScreen);
     xfree (cs);
@@ -1074,8 +1059,6 @@ XFixesCursorInit (void)
 	    return FALSE;
 	Wrap (cs, pScreen, CloseScreen, CursorCloseScreen);
 	Wrap (cs, pScreen, DisplayCursor, CursorDisplayCursor);
-	Wrap (cs, pScreen, ChangeWindowAttributes,
-	      CursorChangeWindowAttributes);
 	cs->pCursorHideCounts = NULL;
 	SetCursorScreen (pScreen, cs);
     }

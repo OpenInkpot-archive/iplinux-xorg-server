@@ -1,7 +1,31 @@
 /* x-input.m -- event handling
- $Id: x-input.m,v 1.26 2007-04-07 20:39:03 jharper Exp $
- 
- Copyright (c) 2002 Apple Computer, Inc. All rights reserved. */
+   Copyright (c) 2002, 2008 Apple Computer, Inc. All rights reserved.
+
+   Permission is hereby granted, free of charge, to any person
+   obtaining a copy of this software and associated documentation files
+   (the "Software"), to deal in the Software without restriction,
+   including without limitation the rights to use, copy, modify, merge,
+   publish, distribute, sublicense, and/or sell copies of the Software,
+   and to permit persons to whom the Software is furnished to do so,
+   subject to the following conditions:
+
+   The above copyright notice and this permission notice shall be
+   included in all copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+   NONINFRINGEMENT.  IN NO EVENT SHALL THE ABOVE LISTED COPYRIGHT
+   HOLDER(S) BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+   WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+   DEALINGS IN THE SOFTWARE.
+
+   Except as contained in this notice, the name(s) of the above
+   copyright holders shall not be used in advertising or otherwise to
+   promote the sale, use or other dealings in this Software without
+   prior written authorization.
+ */
 
 #include "pbproxy.h"
 #import "x-selection.h"
@@ -15,76 +39,110 @@
 
 #include <unistd.h>
 
-/* FIXME: .. */
-CFRunLoopSourceRef x_dpy_source;
+#include <pthread.h>
+
+static CFRunLoopSourceRef xpbproxy_dpy_source;
+
+#ifdef STANDALONE_XPBPROXY
+BOOL xpbproxy_prefs_reload = NO;
+#endif
+
+static pthread_mutex_t xpbproxy_dpy_rdy_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t xpbproxy_dpy_rdy_cond = PTHREAD_COND_INITIALIZER;
 
 /* Timestamp when the X server last told us it's active */
 static Time last_activation_time;
 
 static void x_event_apple_wm_notify(XAppleWMNotifyEvent *e) {
+    int type = e->type - xpbproxy_apple_wm_event_base;
+    int kind = e->kind;
 
-    switch (e->type - x_apple_wm_event_base) {              
+    /* We want to reload prefs even if we're not active */
+    if(type == AppleWMActivationNotify &&
+       kind == AppleWMReloadPreferences)
+        [xpbproxy_selection_object() reload_preferences];
+
+    if(![xpbproxy_selection_object() is_active])
+        return;
+
+    switch (type) {              
         case AppleWMActivationNotify:
-            switch (e->kind) {
+            switch (kind) {
                 case AppleWMIsActive:
                     last_activation_time = e->time;
-                    x_set_is_active (YES);
-                    [x_selection_object () x_active:e->time];
+                    [xpbproxy_selection_object() x_active:e->time];
                     break;
                     
                 case AppleWMIsInactive:
-                    x_set_is_active (NO);
-                    [x_selection_object () x_inactive:e->time];
+                    [xpbproxy_selection_object() x_inactive:e->time];
                     break;
             }
             break;
             
         case AppleWMPasteboardNotify:
-            switch (e->kind) {
+            switch (kind) {
                 case AppleWMCopyToPasteboard:
-                    [x_selection_object () x_copy:e->time];
+                    [xpbproxy_selection_object() x_copy:e->time];
             }
             break;
     }
 }
 
-void x_input_run (void) {
-
-    while (XPending (x_dpy) != 0) {
-        XEvent e;       
-
-        XNextEvent (x_dpy, &e);
+void xpbproxy_input_loop() {
+    pthread_mutex_lock(&xpbproxy_dpy_rdy_lock);
+    while(true) {
+        NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
         
-        switch (e.type) {                
-            case SelectionClear:
-	        [x_selection_object () clear_event:&e.xselectionclear];
-                break;
-                
-            case SelectionRequest:
-                [x_selection_object () request_event:&e.xselectionrequest];
-                break;
-                
-            case SelectionNotify:
-                [x_selection_object () notify_event:&e.xselection];
-                break;
-                
-	    case PropertyNotify:
-		[x_selection_object () property_event:&e.xproperty];
-		break;
-
-            default:
-                if (e.type - x_apple_wm_event_base >= 0
-                    && e.type - x_apple_wm_event_base < AppleWMNumberEvents) {
-                    x_event_apple_wm_notify ((XAppleWMNotifyEvent *) &e);
-                }
-                break;
+        if(pool == nil) {
+            fprintf(stderr, "unable to allocate/init auto release pool!\n");
+            break;
         }
-
-	XFlush(x_dpy);
+        
+        while (XPending(xpbproxy_dpy) != 0) {
+            XEvent e;
+            
+            pthread_mutex_unlock(&xpbproxy_dpy_rdy_lock);
+            XNextEvent (xpbproxy_dpy, &e);
+            
+            switch (e.type) {                
+                case SelectionClear:
+                    if([xpbproxy_selection_object() is_active])
+                        [xpbproxy_selection_object () clear_event:&e.xselectionclear];
+                    break;
+                    
+                case SelectionRequest:
+                    [xpbproxy_selection_object () request_event:&e.xselectionrequest];
+                    break;
+                    
+                case SelectionNotify:
+                    [xpbproxy_selection_object () notify_event:&e.xselection];
+                    break;
+                    
+                case PropertyNotify:
+                    [xpbproxy_selection_object () property_event:&e.xproperty];
+                    break;
+                    
+                default:
+                    if(e.type >= xpbproxy_apple_wm_event_base &&
+                       e.type < xpbproxy_apple_wm_event_base + AppleWMNumberEvents) {
+                        x_event_apple_wm_notify((XAppleWMNotifyEvent *) &e);
+                    } else if(e.type == xpbproxy_xfixes_event_base + XFixesSelectionNotify) {
+                        [xpbproxy_selection_object() xfixes_selection_notify:(XFixesSelectionNotifyEvent *)&e];
+                    }
+                    break;
+            }
+            
+            XFlush(xpbproxy_dpy);
+            pthread_mutex_lock(&xpbproxy_dpy_rdy_lock);
+        }
+        
+        [pool release];
+        
+        pthread_cond_wait(&xpbproxy_dpy_rdy_cond, &xpbproxy_dpy_rdy_lock);
     }
 }
 
-static int add_input_socket (int sock, CFOptionFlags callback_types,
+static BOOL add_input_socket (int sock, CFOptionFlags callback_types,
                              CFSocketCallBack callback, const CFSocketContext *ctx,
                              CFRunLoopSourceRef *cf_source) {
     CFSocketRef cf_sock;
@@ -103,20 +161,27 @@ static int add_input_socket (int sock, CFOptionFlags callback_types,
     if (*cf_source == NULL)
         return FALSE;
     
-    CFRunLoopAddSource (CFRunLoopGetCurrent (),
+    CFRunLoopAddSource (CFRunLoopGetMain (),
                         *cf_source, kCFRunLoopDefaultMode);
     return TRUE;
 }
 
 static void x_input_callback (CFSocketRef sock, CFSocketCallBackType type,
                               CFDataRef address, const void *data, void *info) {
-    x_input_run ();
-}
 
-void x_input_register(void) {
-    if (!add_input_socket (ConnectionNumber (x_dpy), kCFSocketReadCallBack,
-                           x_input_callback, NULL, &x_dpy_source)) {
-        exit (1);
+#ifdef STANDALONE_XPBPROXY
+    if(xpbproxy_prefs_reload) {
+        [xpbproxy_selection_object() reload_preferences];
+        xpbproxy_prefs_reload = NO;
     }
+#endif
+
+    pthread_mutex_lock(&xpbproxy_dpy_rdy_lock);
+    pthread_cond_broadcast(&xpbproxy_dpy_rdy_cond);
+    pthread_mutex_unlock(&xpbproxy_dpy_rdy_lock);
 }
 
+BOOL xpbproxy_input_register(void) {
+    return add_input_socket(ConnectionNumber(xpbproxy_dpy), kCFSocketReadCallBack,
+                            x_input_callback, NULL, &xpbproxy_dpy_source);
+}

@@ -103,7 +103,7 @@ struct __GLXDRIdrawable {
 #ifdef __DRI_TEX_OFFSET
     GLint texname;
     __GLXDRIcontext *ctx;
-    unsigned long offset;
+    unsigned long long offset;
     DamagePtr pDamage;
 #endif
 };
@@ -189,6 +189,8 @@ __glXDRIdoReleaseTexImage(__GLXDRIscreen *screen, __GLXDRIdrawable *drawable)
 
 	for (i = 0; i < lastOverride; i++) {
 	    if (texOffsetOverride[i] == drawable) {
+		if (screen->texOffsetFinish)
+		    screen->texOffsetFinish((PixmapPtr)drawable->base.pDraw);
 
 		texOffsetOverride[i] = NULL;
 
@@ -361,6 +363,21 @@ glxFillAlphaChannel (CARD32 *pixels, CARD32 rowstride, int width, int height)
     }
 }
 
+static Bool
+testTexOffset(__GLXDRIscreen * const screen, PixmapPtr pPixmap)
+{
+    Bool ret;
+
+    if (!screen->texOffsetStart || !screen->texOffset)
+	return FALSE;
+
+    __glXenterServer(GL_FALSE);
+    ret = screen->texOffsetStart(pPixmap) != ~0ULL;
+    __glXleaveServer(GL_FALSE);
+
+    return ret;
+}
+
 /*
  * (sticking this here for lack of a better place)
  * Known issues with the GLX_EXT_texture_from_pixmap implementation:
@@ -396,7 +413,7 @@ __glXDRIbindTexImage(__GLXcontext *baseContext,
 
     pixmap = (PixmapPtr) glxPixmap->pDraw;
 
-    if (screen->texOffsetStart && screen->texOffset) {
+    if (testTexOffset(screen, pixmap)) {
 	__GLXDRIdrawable **texOffsetOverride = screen->texOffsetOverride;
 	int i, firstEmpty = 16;
 
@@ -613,11 +630,10 @@ __glXDRIscreenCreateContext(__GLXscreen *baseScreen,
     if (baseShareContext && baseShareContext->isDirect)
         return NULL;
 
-    context = xalloc(sizeof *context);
+    context = xcalloc(1, sizeof *context);
     if (context == NULL)
 	return NULL;
 
-    memset(context, 0, sizeof *context);
     context->base.destroy           = __glXDRIcontextDestroy;
     context->base.makeCurrent       = __glXDRIcontextMakeCurrent;
     context->base.loseCurrent       = __glXDRIcontextLoseCurrent;
@@ -631,7 +647,7 @@ __glXDRIscreenCreateContext(__GLXscreen *baseScreen,
 	if (visual->vid == glxConfig->visualID)
 	    break;
     if (i == pScreen->numVisuals)
-	return GL_FALSE;
+	return NULL;
 
     context->hwContextID = FakeClientID(0);
 
@@ -639,6 +655,9 @@ __glXDRIscreenCreateContext(__GLXscreen *baseScreen,
     retval = DRICreateContext(baseScreen->pScreen, visual,
 			      context->hwContextID, &hwContext);
     __glXleaveServer(GL_FALSE);
+
+    if (!retval)
+    	return NULL;
 
     context->driContext =
 	screen->legacy->createNewContext(screen->driScreen,
@@ -672,11 +691,9 @@ __glXDRIscreenCreateDrawable(__GLXscreen *screen,
     GLboolean retval;
     drm_drawable_t hwDrawable;
 
-    private = xalloc(sizeof *private);
+    private = xcalloc(1, sizeof *private);
     if (private == NULL)
 	return NULL;
-
-    memset(private, 0, sizeof *private);
 
     if (!__glXDrawableInit(&private->base, screen,
 			   pDraw, type, drawId, glxConfig)) {
@@ -692,6 +709,11 @@ __glXDRIscreenCreateDrawable(__GLXscreen *screen,
     retval = DRICreateDrawable(screen->pScreen, serverClient,
 			       pDraw, &hwDrawable);
     __glXleaveServer(GL_FALSE);
+
+    if (!retval) {
+    	xfree(private);
+    	return NULL;
+    }
 
     /* The last argument is 'attrs', which is used with pbuffers which
      * we currently don't support. */
@@ -871,6 +893,15 @@ initializeExtensions(__GLXDRIscreen *screen)
     extensions = screen->core->getExtensions(screen->driScreen);
 
     for (i = 0; extensions[i]; i++) {
+#ifdef __DRI_READ_DRAWABLE
+	if (strcmp(extensions[i]->name, __DRI_READ_DRAWABLE) == 0) {
+	    __glXEnableExtension(screen->glx_enable_bits,
+				 "GLX_SGI_make_current_read");
+	    
+	    LogMessage(X_INFO, "AIGLX: enabled GLX_SGI_make_current_read\n");
+	}
+#endif
+
 #ifdef __DRI_COPY_SUB_BUFFER
 	if (strcmp(extensions[i]->name, __DRI_COPY_SUB_BUFFER) == 0) {
 	    screen->copySubBuffer = (__DRIcopySubBufferExtension *) extensions[i];
@@ -941,10 +972,9 @@ __glXDRIscreenProbe(ScreenPtr pScreen)
 	return NULL;
     }
 
-    screen = xalloc(sizeof *screen);
+    screen = xcalloc(1, sizeof *screen);
     if (screen == NULL)
       return NULL;
-    memset(screen, 0, sizeof *screen);
 
     screen->base.destroy        = __glXDRIscreenDestroy;
     screen->base.createContext  = __glXDRIscreenCreateContext;

@@ -140,6 +140,8 @@ exaUnrealizeGlyphCaches(ScreenPtr    pScreen,
     }
 }
 
+#define NeedsComponent(f) (PICT_FORMAT_A(f) != 0 && PICT_FORMAT_RGB(f) != 0)
+
 /* All caches for a single format share a single pixmap for glyph storage,
  * allowing mixing glyphs of different sizes without paying a penalty
  * for switching between source pixmaps. (Note that for a size of font
@@ -159,6 +161,7 @@ exaRealizeGlyphCaches(ScreenPtr    pScreen,
     PictFormatPtr pPictFormat;
     PixmapPtr pPixmap;
     PicturePtr pPicture;
+    CARD32 component_alpha;
     int height;
     int i;
     int	error;
@@ -191,8 +194,10 @@ exaRealizeGlyphCaches(ScreenPtr    pScreen,
     if (!pPixmap)
 	return FALSE;
 
+    component_alpha = NeedsComponent(pPictFormat->format);
     pPicture = CreatePicture(0, &pPixmap->drawable, pPictFormat,
-			     0, 0, serverClient, &error);
+			     CPComponentAlpha, &component_alpha, serverClient,
+			     &error);
 
     (*pScreen->DestroyPixmap) (pPixmap); /* picture holds a refcount */
 
@@ -491,7 +496,6 @@ exaGlyphCacheBufferGlyph(ScreenPtr         pScreen,
 	}
 
     }
-    
 
     buffer->source = cache->picture;
 	    
@@ -502,7 +506,7 @@ exaGlyphCacheBufferGlyph(ScreenPtr         pScreen,
     rect->yDst = yGlyph - pGlyph->info.y;
     rect->width = pGlyph->info.width;
     rect->height = pGlyph->info.height;
-	    
+
     buffer->count++;
 
     return ExaGlyphSuccess;
@@ -597,7 +601,7 @@ exaGlyphsToDst(CARD8		 op,
 
     for (i = 0; i < buffer->count; i++) {
 	ExaCompositeRectPtr rect = &buffer->rects[i];
-	
+
 	CompositePicture (op,
 			  pSrc,
 			  buffer->source,
@@ -742,8 +746,6 @@ exaGlyphsIntersect(int nlist, GlyphListPtr list, GlyphPtr *glyphs)
     return FALSE;
 }
 
-#define NeedsComponent(f) (PICT_FORMAT_A(f) != 0 && PICT_FORMAT_RGB(f) != 0)
-
 void
 exaGlyphs (CARD8 	 op,
 	   PicturePtr	 pSrc,
@@ -872,12 +874,14 @@ exaGlyphs (CARD8 	 op,
 	list++;
     }
     
-    if (maskFormat)
-	exaGlyphsToMask(pMask, &buffer);
-    else
-	exaGlyphsToDst(op, pSrc, pDst, &buffer,
-		       xSrc, ySrc, xDst, yDst);
-    
+    if (buffer.count) {
+        if (maskFormat)
+	    exaGlyphsToMask(pMask, &buffer);
+        else
+	    exaGlyphsToDst(op, pSrc, pDst, &buffer,
+		           xSrc, ySrc, xDst, yDst);
+    }
+
     if (maskFormat)
     {
 	x = extents.x1;

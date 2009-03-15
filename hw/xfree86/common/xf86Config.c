@@ -110,8 +110,6 @@ extern DeviceAssocRec mouse_assoc;
 #define PROJECTROOT	"/usr/X11R6"
 #endif
 
-static char *fontPath = NULL;
-
 static ModuleDefault ModuleDefaults[] = {
     {.name = "extmod",   .toLoad = TRUE,    .load_opt=NULL},
     {.name = "dbe",      .toLoad = TRUE,    .load_opt=NULL},
@@ -586,90 +584,55 @@ xf86ConfigError(char *msg, ...)
 static void
 configFiles(XF86ConfFilesPtr fileconf)
 {
-  MessageType pathFrom = X_DEFAULT;
-  int countDirs;
-  char *temp_path;
-  char *log_buf;
+    MessageType	 pathFrom;
+    Bool	 must_copy;
+    int		 size, countDirs;
+    char	*temp_path, *log_buf, *start, *end;
 
-  /* FontPath */
-  /* Try XF86Config FontPath first */
-  if (!xf86fpFlag) {
-   if (fileconf) {
-    if (fileconf->file_fontpath) {
-      char *f = xf86ValidateFontPath(fileconf->file_fontpath);
-      pathFrom = X_CONFIG;
-      if (*f) {
-        if (xf86Info.useDefaultFontPath) {
-          char *g;
-          xf86Msg(X_DEFAULT, "Including the default font path %s.\n", defaultFontPath);
-	  g = xnfalloc(strlen(defaultFontPath) + strlen(f) + 3);
-          strcpy(g, f);
-          strcat(g, ",");
-          defaultFontPath = strcat(g, defaultFontPath);
-          xfree(f);
-        } else {
-          defaultFontPath = f;
-        }
-      } else {
-	xf86Msg(X_WARNING,
-	    "FontPath is completely invalid.  Using compiled-in default.\n");
-        fontPath = NULL;
-        pathFrom = X_DEFAULT;
-      }
-    } 
-   } else {
-      xf86Msg(X_DEFAULT,
-	    "No FontPath specified.  Using compiled-in default.\n");
-      pathFrom = X_DEFAULT;
-   }
-  } else {
-    /* Use fontpath specified with '-fp' */
-    if (fontPath)
-    {
-      fontPath = NULL;
+    /* FontPath */
+    must_copy = TRUE;
+
+    temp_path = defaultFontPath ? defaultFontPath : "";
+    if (xf86fpFlag)
+	pathFrom = X_CMDLINE;
+    else if (fileconf && fileconf->file_fontpath) {
+	pathFrom = X_CONFIG;
+	if (xf86Info.useDefaultFontPath) {
+	    defaultFontPath = Xprintf("%s%s%s",
+				      fileconf->file_fontpath,
+				      *temp_path ? "," : "", temp_path);
+	    must_copy = FALSE;
+	}
+	else
+	    defaultFontPath = fileconf->file_fontpath;
     }
-    pathFrom = X_CMDLINE;
-  }
-  if (!fileconf) {
-      /* xf86ValidateFontPath will write into it's arg, but defaultFontPath
-       could be static, so we make a copy. */
-    char *f = xnfalloc(strlen(defaultFontPath) + 1);
-    f[0] = '\0';
-    strcpy (f, defaultFontPath);
-    defaultFontPath = xf86ValidateFontPath(f);
-    xfree(f);
-  } else {
-   if (fileconf) {
-    if (!fileconf->file_fontpath) {
-      /* xf86ValidateFontPath will write into it's arg, but defaultFontPath
-       could be static, so we make a copy. */
-     char *f = xnfalloc(strlen(defaultFontPath) + 1);
-     f[0] = '\0';
-     strcpy (f, defaultFontPath);
-     defaultFontPath = xf86ValidateFontPath(f);
-     xfree(f);
+    else
+	pathFrom = X_DEFAULT;
+    temp_path = defaultFontPath ? defaultFontPath : "";
+
+    /* ensure defaultFontPath contains "built-ins" */
+    start = strstr(temp_path, "built-ins");
+    end = start + strlen("built-ins");
+    if (start == NULL ||
+	!((start == temp_path || start[-1] == ',') && (!*end || *end == ','))) {
+	defaultFontPath = Xprintf("%s%sbuilt-ins",
+				  temp_path, *temp_path ? "," : "");
+	must_copy = FALSE;
     }
-   }
-  }
+    /* xf86ValidateFontPath modifies its argument, but returns a copy of it. */
+    temp_path = must_copy ? XNFstrdup(defaultFontPath) : defaultFontPath;
+    defaultFontPath = xf86ValidateFontPath(temp_path);
+    free(temp_path);
 
-  /* If defaultFontPath is still empty, exit here */
+    /* make fontpath more readable in the logfiles */
+    countDirs = 1;
+    temp_path = defaultFontPath;
+    while ((temp_path = index(temp_path, ',')) != NULL) {
+	countDirs++;
+	temp_path++;
+    }
 
-  if (! *defaultFontPath)
-    FatalError("No valid FontPath could be found.");
-
-  /* make fontpath more readable in the logfiles */
-  countDirs = 1;
-  temp_path = defaultFontPath;
-  while((temp_path = index(temp_path, ',')) != NULL) {
-    countDirs++;
-    temp_path++;
-  }
-  log_buf = xnfalloc(strlen(defaultFontPath) + (2 * countDirs) + 1);
-  if(!log_buf) /* fallback to old method */
-    xf86Msg(pathFrom, "FontPath set to \"%s\"\n", defaultFontPath);
-  else {
-    char *start, *end;
-    int size;
+    log_buf = xnfalloc(strlen(defaultFontPath) + (2 * countDirs) + 1);
     temp_path = log_buf;
     start = defaultFontPath;
     while((end = index(start, ',')) != NULL) {
@@ -685,7 +648,6 @@ configFiles(XF86ConfFilesPtr fileconf)
     strcpy(temp_path, start);
     xf86Msg(pathFrom, "FontPath set to:\n%s\n", log_buf);
     xfree(log_buf);
-  }
 
 
   if (fileconf && fileconf->file_inputdevs) {
@@ -706,6 +668,11 @@ configFiles(XF86ConfFilesPtr fileconf)
 
   xf86Msg(xf86ModPathFrom, "ModulePath set to \"%s\"\n", xf86ModulePath);
 
+  if (!xf86xkbdirFlag && fileconf && fileconf->file_xkbdir) {
+    XkbBaseDirectory = fileconf->file_xkbdir;
+    xf86Msg(X_CONFIG, "XKB base directory set to \"%s\"\n",
+	    XkbBaseDirectory);
+  }
 #if 0
   /* LogFile */
   /*
@@ -766,7 +733,7 @@ static OptionInfoRec FlagOptions[] = {
   { FLAG_DONTVTSWITCH,		"DontVTSwitch",			OPTV_BOOLEAN,
 	{0}, FALSE },
   { FLAG_DONTZAP,		"DontZap",			OPTV_BOOLEAN,
-	{0}, FALSE },
+	{0}, TRUE },
   { FLAG_DONTZOOM,		"DontZoom",			OPTV_BOOLEAN,
 	{0}, FALSE },
   { FLAG_DISABLEVIDMODE,	"DisableVidModeExtension",	OPTV_BOOLEAN,
@@ -855,6 +822,9 @@ configServerFlags(XF86ConfFlagsPtr flagsconf, XF86OptionPtr layoutopts)
     Bool value;
     MessageType from;
     const char *s;
+#ifdef XKB
+    char *rules = "base";
+#endif
 
     /*
      * Merge the ServerLayout and ServerFlags options.  The former have
@@ -875,7 +845,8 @@ configServerFlags(XF86ConfFlagsPtr flagsconf, XF86OptionPtr layoutopts)
 
     xf86GetOptValBool(FlagOptions, FLAG_NOTRAPSIGNALS, &xf86Info.notrapSignals);
     xf86GetOptValBool(FlagOptions, FLAG_DONTVTSWITCH, &xf86Info.dontVTSwitch);
-    xf86GetOptValBool(FlagOptions, FLAG_DONTZAP, &xf86Info.dontZap);
+    if (!xf86GetOptValBool(FlagOptions, FLAG_DONTZAP, &xf86Info.dontZap))
+        xf86Info.dontZap = !party_like_its_1989;
     xf86GetOptValBool(FlagOptions, FLAG_DONTZOOM, &xf86Info.dontZoom);
 
     xf86GetOptValBool(FlagOptions, FLAG_IGNORE_ABI, &xf86Info.ignoreABI);
@@ -889,7 +860,6 @@ configServerFlags(XF86ConfFlagsPtr flagsconf, XF86OptionPtr layoutopts)
         from = X_CONFIG;
     }
     else {
-        xf86Info.autoAddDevices = TRUE;
         from = X_DEFAULT;
     }
     xf86Msg(from, "%sutomatically adding devices\n",
@@ -901,7 +871,6 @@ configServerFlags(XF86ConfFlagsPtr flagsconf, XF86OptionPtr layoutopts)
         from = X_CONFIG;
     }
     else {
-        xf86Info.autoEnableDevices = TRUE;
         from = X_DEFAULT;
     }
     xf86Msg(from, "%sutomatically enabling devices\n",
@@ -1019,7 +988,7 @@ configServerFlags(XF86ConfFlagsPtr flagsconf, XF86OptionPtr layoutopts)
 	} else if (!xf86NameCmp(s, "all")) {
 	    xf86Info.glxVisuals = XF86_GlxVisualsAll;
 	} else {
-	    xf86Msg(X_WARNING,"Unknown HandleSpecialKeys option\n");
+	    xf86Msg(X_WARNING,"Unknown GlxVisuals option\n");
 	}
     }
 
@@ -1032,6 +1001,15 @@ configServerFlags(XF86ConfFlagsPtr flagsconf, XF86OptionPtr layoutopts)
     /* AllowEmptyInput is automatically true if we're hotplugging */
     xf86Info.allowEmptyInput = (xf86Info.autoAddDevices && xf86Info.autoEnableDevices);
     xf86GetOptValBool(FlagOptions, FLAG_ALLOW_EMPTY_INPUT, &xf86Info.allowEmptyInput);
+
+    /* AEI on? Then we're not using kbd, so use the evdev rules set. */
+#ifdef XKB
+#if defined(linux)
+    if (xf86Info.allowEmptyInput)
+        rules = "evdev";
+#endif
+    XkbSetRulesDflts(rules, "pc105", "us", NULL, NULL);
+#endif
 
     xf86Info.useDefaultFontPath = TRUE;
     xf86Info.useDefaultFontPathFrom = X_DEFAULT;
@@ -1281,7 +1259,7 @@ checkCoreInputDevices(serverLayoutPtr servlayoutp, Bool implicitLayout)
     }
 
     /* 4. First pointer with 'mouse' as the driver. */
-    if (!foundPointer && (!xf86Info.allowEmptyInput || implicitLayout)) {
+    if (!foundPointer && !xf86Info.allowEmptyInput) {
 	confInput = xf86findInput(CONF_IMPLICIT_POINTER,
 				  xf86configptr->conf_input_lst);
 	if (!confInput) {
@@ -1421,7 +1399,7 @@ checkCoreInputDevices(serverLayoutPtr servlayoutp, Bool implicitLayout)
     }
 
     /* 4. First keyboard with 'keyboard' or 'kbd' as the driver. */
-    if (!foundKeyboard && (!xf86Info.allowEmptyInput || implicitLayout)) {
+    if (!foundKeyboard && !xf86Info.allowEmptyInput) {
 	confInput = xf86findInput(CONF_IMPLICIT_KEYBOARD,
 				  xf86configptr->conf_input_lst);
 	if (!confInput) {
@@ -1493,9 +1471,14 @@ checkCoreInputDevices(serverLayoutPtr servlayoutp, Bool implicitLayout)
     }
 
     if (xf86Info.allowEmptyInput && !(foundPointer && foundKeyboard)) {
+#ifdef CONFIG_HAL
 	xf86Msg(X_INFO, "The server relies on HAL to provide the list of "
 	                "input devices.\n\tIf no devices become available, "
 	                "reconfigure HAL or disable AllowEmptyInput.\n");
+#else
+	xf86Msg(X_INFO, "HAL is disabled and no input devices were configured.\n"
+			"\tTry disabling AllowEmptyInput.\n");
+#endif
     }
 
     return TRUE;
@@ -2444,6 +2427,42 @@ addDefaultModes(MonPtr monitorp)
 static void
 checkInput(serverLayoutPtr layout, Bool implicit_layout) {
     checkCoreInputDevices(layout, implicit_layout);
+
+    /* AllowEmptyInput and the "kbd" and "mouse" drivers are mutually
+     * exclusive. Trawl the list for mouse/kbd devices and disable them.
+     */
+    if (xf86Info.allowEmptyInput && layout->inputs)
+    {
+        IDevPtr *dev = layout->inputs;
+        BOOL warned = FALSE;
+
+        while(*dev)
+        {
+            if (strcmp((*dev)->driver, "kbd") == 0 ||
+                strcmp((*dev)->driver, "mouse") == 0 ||
+                strcmp((*dev)->driver, "vmmouse") == 0)
+            {
+                IDevPtr *current;
+                if (!warned)
+                {
+                    xf86Msg(X_WARNING, "AllowEmptyInput is on, devices using "
+                            "drivers 'kbd', 'mouse' or 'vmmouse' will be disabled.\n");
+                    warned = TRUE;
+                }
+
+                xf86Msg(X_WARNING, "Disabling %s\n", (*dev)->identifier);
+
+                current = dev;
+                xfree(*dev);
+
+                do {
+                    *current = *(current + 1);
+                    current++;
+                } while(*current);
+            } else
+                dev++;
+        }
+    }
 }
 
 /*
@@ -2473,10 +2492,9 @@ xf86HandleConfigFile(Bool autoconfig)
 	    xf86MsgVerb(from, 0, "Using config file: \"%s\"\n", filename);
 	    xf86ConfigFile = xnfstrdup(filename);
 	} else {
-	    xf86Msg(X_WARNING, "Unable to locate/open config file");
 	    if (xf86ConfigFile)
-		xf86ErrorFVerb(0, ": \"%s\"", xf86ConfigFile);
-	    xf86ErrorFVerb(0, "\n");
+		xf86Msg(X_ERROR, "Unable to locate/open config file: \"%s\"\n",
+			xf86ConfigFile);
 	    return CONFIG_NOFILE;
 	}
     }

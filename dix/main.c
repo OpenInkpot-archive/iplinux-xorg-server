@@ -234,13 +234,18 @@ static int indexForScanlinePad[ 65 ] = {
 #endif
 
 #ifdef XQUARTZ
+#include <pthread.h>
+
+BOOL serverInitComplete = FALSE;
+pthread_mutex_t serverInitCompleteMutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t serverInitCompleteCond = PTHREAD_COND_INITIALIZER;
+
 int dix_main(int argc, char *argv[], char *envp[])
 #else
 int main(int argc, char *argv[], char *envp[])
 #endif
 {
     int		i;
-    char	*xauthfile;
     HWEventQueueType	alwaysCheckForInput[2];
 
     display = "0";
@@ -253,10 +258,6 @@ int main(int argc, char *argv[], char *envp[])
 
     InitConnectionLimits();
 
-    /* prep X authority file from environment; this can be overriden by a
-     * command line option */
-    xauthfile = getenv("XAUTHORITY");
-    if (xauthfile) InitAuthorization (xauthfile);
     ProcessCommandLine(argc, argv);
 
     alwaysCheckForInput[0] = 0;
@@ -311,7 +312,6 @@ int main(int argc, char *argv[], char *envp[])
 	dixResetRegistry();
 	ResetFontPrivateIndex();
 	InitCallbackManager();
-	InitVisualWrap();
 	InitOutput(&screenInfo, argc, argv);
 
 	if (screenInfo.numScreens < 1)
@@ -367,8 +367,7 @@ int main(int argc, char *argv[], char *envp[])
 
         InitCoreDevices();
 	InitInput(argc, argv);
-	if (InitAndStartDevices() != Success)
-	    FatalError("failed to initialize core devices");
+	InitAndStartDevices();
 
 	dixSaveScreens(serverClient, SCREEN_SAVER_FORCER, ScreenSaverReset);
 
@@ -385,6 +384,14 @@ int main(int argc, char *argv[], char *envp[])
 	    }
 	}
 
+#ifdef XQUARTZ
+    /* Let the other threads know the server is done with its init */
+    pthread_mutex_lock(&serverInitCompleteMutex);
+    serverInitComplete = TRUE;
+    pthread_cond_broadcast(&serverInitCompleteCond);
+    pthread_mutex_unlock(&serverInitCompleteMutex);
+#endif
+        
 	NotifyParentProcess();
 
 	Dispatch();
@@ -465,7 +472,7 @@ SetVendorString(char *string)
     VendorString = string;
 }
 
-static int padlength[4] = {0, 3, 2, 1};
+static const int padlength[4] = {0, 3, 2, 1};
 
 #ifndef PANORAMIX
 static
