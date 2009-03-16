@@ -48,6 +48,8 @@ THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #include <X11/extensions/XI.h>
 #include "xkb.h"
 
+#include <errno.h>
+
 #if defined(CSRG_BASED) || defined(linux) || defined(__GNU__)
 #include <paths.h>
 #endif
@@ -207,6 +209,46 @@ XkbDDXCompileKeymapByNames(	XkbDescPtr		xkb,
 
     XkbEnsureSafeMapName(keymap);
     OutputDirectory(xkm_output_dir, sizeof(xkm_output_dir));
+
+    /*
+     * First check for the existing pre-compiled xkb keymap.
+     */
+
+    snprintf(nameRtrn, nameRtrnLen, "%s/%s-%s-%s-%s-%s-%s.xkm",
+             XkbBaseDirectory ? XkbBaseDirectory : "/nonexistent",
+             names->keymap ? names->keymap : "def",
+             names->keycodes ? names->keycodes : "def",
+             names->types ? names->types : "def",
+             names->compat ? names->compat : "def",
+             names->symbols ? names->symbols : "def",
+             names->geometry ? names->geometry : "def");
+
+    if (access(nameRtrn, R_OK) == 0)
+    {
+        char output_keymap[PATH_MAX];
+
+        snprintf(output_keymap, PATH_MAX, "%s%s.xkm", xkm_output_dir, keymap);
+
+        int rc = link(nameRtrn, output_keymap);
+        if (rc == 0)
+        {
+            strncpy(nameRtrn, keymap, nameRtrnLen);
+            return True;
+        }
+        if (rc == -1 && errno == EXDEV)
+        {
+            /* Lazy way */
+            char cmdline[PATH_MAX];
+            snprintf(cmdline, PATH_MAX, "cp -f '%s' '%s",
+                     nameRtrn, output_keymap);
+
+            system(cmdline);
+
+            strncpy(nameRtrn, keymap, nameRtrnLen);
+            return True;
+        }
+    }
+
 
 #ifdef WIN32
     strcpy(tmpname, Win32TempDir());
