@@ -50,7 +50,7 @@ Standards-Version: 3.7.3
 
 Package: xserver-xfbdev
 Architecture: alpha amd64 arm armeb armel hppa i386 ia64 lpia m32r m68k mips mipsel powerpc ppc64 sh3 sh3eb sh4 sh4eb sparc
-Depends: ${shlibs:Depends}, ${misc:Depends}, libsha1-0 (>= 0.2-3), xkbcomp, xkb-data
+Depends: ${shlibs:Depends}, ${misc:Depends}, libsha1-0 (>= 0.2-3), xkb-data | xkm-data
 Description: Linux framebuffer device tiny X server
  xserver-xfbdev is a Linux framebuffer device tiny X server based on the
  kdrive X server.
