@@ -1,3 +1,11 @@
+xorg-server (2:1.6.0-4) asimov; urgency=low
+
+  * Added patch for optionally reading pre-compiled keymaps instead of
+    using xkbcomp on startup.
+  * Dropped dependency on xkbcomp, added xkb-data | xkm-data alternative.
+
+ -- Mikhail Gusarov <dottedmag@dottedmag.net>  Tue, 17 Mar 2009 03:36:12 +0600
+
 xorg-server (2:1.6.0-3) asimov; urgency=low
 
   * Fixed libsha1 dependency.
