@@ -1,3 +1,10 @@
+xorg-server (2:1.6.0-5) asimov; urgency=low
+
+  * Bumped upper limit of keysyms in kdrive evdev driver to allow new
+    keys, such as KEY_SEARCH, to pass to the server.
+
+ -- Mikhail Gusarov <dottedmag@dottedmag.net>  Wed, 25 Mar 2009 22:40:54 +0600
+
 xorg-server (2:1.6.0-4) asimov; urgency=low
 
   * Added patch for optionally reading pre-compiled keymaps instead of
