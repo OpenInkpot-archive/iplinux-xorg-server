@@ -359,7 +359,7 @@ readMapping (KdKeyboardInfo *ki)
         return;
 
     minScanCode = 0;
-    maxScanCode = 193;
+    maxScanCode = 0xff;
 
     ki->keySyms.mapWidth = 2;
 
