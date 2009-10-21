@@ -8,7 +8,7 @@
 #endif
 
 #define _SHAPE_SERVER_  /* don't want Xlib structures */
-#include <X11/extensions/shapestr.h>
+#include <X11/extensions/shapeproto.h>
 
 #ifdef MULTIBUFFER
 extern void MultibufferExtensionInit(INITARGS);
@@ -18,9 +18,7 @@ extern void MultibufferExtensionInit(INITARGS);
 
 #ifdef XTEST
 extern void XTestExtensionInit(INITARGS);
-#define _XTEST_SERVER_
-#include <X11/extensions/XTest.h>
-#include <X11/extensions/xteststr.h>
+#include <X11/extensions/xtestproto.h>
 #endif
 
 #if 1
@@ -65,7 +63,7 @@ extern void ResExtensionInit(INITARGS);
 
 #ifdef SHM
 extern void ShmExtensionInit(INITARGS);
-#include <X11/extensions/shmstr.h>
+#include <X11/extensions/shmproto.h>
 extern void ShmRegisterFuncs(
     ScreenPtr pScreen,
     ShmFuncsPtr funcs);

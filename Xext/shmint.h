@@ -24,7 +24,33 @@
 #define _SHMINT_H_
 
 #define _XSHM_SERVER_
-#include <X11/extensions/shmstr.h>
+#include <X11/extensions/shmproto.h>
+
+typedef struct _ShmFuncs {
+    PixmapPtr	(* CreatePixmap)(
+        ScreenPtr	/* pScreen */,
+        int		/* width */,
+        int		/* height */,
+        int		/* depth */,
+        char *	/* addr */);
+
+    void	(* PutImage)(
+        DrawablePtr		/* dst */,
+        GCPtr		/* pGC */,
+        int			/* depth */,
+        unsigned int	/* format */,
+        int			/* w */,
+        int			/* h */,
+        int			/* sx */,
+        int			/* sy */,
+        int			/* sw */,
+        int			/* sh */,
+        int			/* dx */,
+        int			/* dy */,
+        char *		/* data */);
+
+} ShmFuncs, *ShmFuncsPtr;
+
 
 #include "screenint.h"
 #include "pixmap.h"
