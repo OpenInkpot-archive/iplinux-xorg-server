@@ -244,7 +244,11 @@ EvdevPtrEnable (KdPointerInfo *pi)
 
     unsigned long   ev[NBITS(EV_MAX)];
     Kevdev            *ke;
-        
+
+    if (ioctl(fd, EVIOCGRAB, 1) < 0)
+        perror("Unable to grab input mouse pointer device. "
+               "Expect bizzare behaviour.");
+
     if (ioctl (fd, EVIOCGBIT(0 /*EV*/, sizeof (ev)), ev) < 0)
     {
         perror ("EVIOCGBIT 0");
@@ -338,6 +342,10 @@ EvdevPtrDisable (KdPointerInfo *pi)
     KdUnregisterFd (pi, ke->fd, TRUE);
     xfree (ke);
     pi->driverPrivate = 0;
+
+    if(ioctl(ke->fd, EVIOCGRAB, 0) < 0)
+        perror("Unable to ungrab pointer device, probably due to failed grab before. "
+               "Enjoy your grabbed device otherwise!");
 }
 
 static void
@@ -433,6 +441,10 @@ EvdevKbdEnable (KdKeyboardInfo *ki)
     if (fd < 0)
         return BadMatch;
 
+    if (ioctl(fd, EVIOCGRAB, 1) < 0)
+        perror("Unable to grab input mouse pointer device. "
+               "Expect bizzare behaviour.");
+
     if (ioctl (fd, EVIOCGBIT(0 /*EV*/, sizeof (ev)), ev) < 0) {
         perror ("EVIOCGBIT 0");
         close (fd);
@@ -506,6 +518,10 @@ EvdevKbdDisable (KdKeyboardInfo *ki)
     KdUnregisterFd (ki, ke->fd, TRUE);
     xfree (ke);
     ki->driverPrivate = 0;
+
+    if(ioctl(ke->fd, EVIOCGRAB, 0) < 0)
+        perror("Unable to ungrab pointer device, probably due to failed grab before. "
+               "Enjoy your grabbed device otherwise!");
 }
 
 static void
