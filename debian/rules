@@ -43,8 +43,6 @@ confflags += \
 	--enable-shm \
 	--enable-xres \
 	--enable-xdm-auth-1 \
-	--enable-dbe \
-	--enable-x86bigfont \
 	--enable-kdrive \
 	--enable-xfbdev \
 	--disable-static \
@@ -53,6 +51,7 @@ confflags += \
 	--disable-aiglx \
 	--disable-glx-tls \
 	--disable-composite \
+	--disable-dbe \
 	--disable-record \
 	--disable-xv \
 	--disable-xvmc \
@@ -63,6 +62,7 @@ confflags += \
 	--disable-dri \
 	--disable-dri2 \
 	--disable-xinerama \
+	--disable-xf86bigfont \
 	--disable-xf86vidmode \
 	--disable-xace \
 	--disable-xselinux \
