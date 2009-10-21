@@ -85,6 +85,8 @@ confflags += \
 	--disable-xsdl \
 	--disable-xfake \
 	--disable-kdrive-vesa \
+	--disable-kdrive-kbd \
+	--disable-kdrive-mouse \
 	--with-os-vendor="$(VENDOR)" \
 	--with-builderstring="$(SOURCE_NAME) $(SOURCE_VERSION) ($(BUILDER))" \
 	--with-default-font-path="built-ins" \
