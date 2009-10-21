@@ -1,3 +1,9 @@
+xorg-server (2:1.6.0-6) asimov; urgency=low
+
+  * Rebuild with proper version (+b2 is not a BinNMU).
+
+ -- Mikhail Gusarov <dottedmag@dottedmag.net>  Wed, 21 Oct 2009 18:38:51 +0700
+
 xorg-server (2:1.6.0-5+b2) asimov; urgency=low
 
   * Adjust to newer Xext
