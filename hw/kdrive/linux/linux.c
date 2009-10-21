@@ -428,15 +428,21 @@ LinuxFini (void)
 void
 KdOsAddInputDrivers ()
 {
+#ifdef KDRIVE_MOUSE
     KdAddPointerDriver(&LinuxMouseDriver);
     KdAddPointerDriver(&MsMouseDriver);
     KdAddPointerDriver(&Ps2MouseDriver);
+#endif
 #ifdef TSLIB
     KdAddPointerDriver(&TsDriver);
 #endif
+#ifdef KDRIVE_EVDEV
     KdAddPointerDriver(&LinuxEvdevMouseDriver);
-    KdAddKeyboardDriver(&LinuxKeyboardDriver);
     KdAddKeyboardDriver(&LinuxEvdevKeyboardDriver);
+#endif
+#ifdef KDRIVE_KBD
+    KdAddKeyboardDriver(&LinuxKeyboardDriver);
+#endif
 }
 
 static void
