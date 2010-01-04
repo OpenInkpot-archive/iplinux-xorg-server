@@ -1,3 +1,11 @@
+xorg-server (2:1.7.99.2.git1-1) zelazny; urgency=low
+
+  * Rebasing to new upstream snapshot.
+    - Most of IPlinux patches dropped, applied upstream
+    - Re-apply remaining patches
+
+ -- Mikhail Gusarov <dottedmag@dottedmag.net>  Tue, 05 Jan 2010 04:00:28 +0600
+
 xorg-server (2:1.6.0-6) asimov; urgency=low
 
   * Rebuild with proper version (+b2 is not a BinNMU).
