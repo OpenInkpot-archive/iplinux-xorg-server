@@ -181,7 +181,7 @@ KdAddFd (int fd)
     KdNonBlockFd (fd);
     AddEnabledDevice (fd);
     memset (&act, '\0', sizeof act);
-    act.sa_handler = KdSigio;
+    act.sa_handler = SIG_IGN;
     sigemptyset (&act.sa_mask);
     sigaddset (&act.sa_mask, SIGIO);
     sigaddset (&act.sa_mask, SIGALRM);
