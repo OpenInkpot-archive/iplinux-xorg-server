@@ -209,9 +209,8 @@ XkbDDXCompileKeymapByNames(	XkbDescPtr		xkb,
      * First check for the existing pre-compiled xkb keymap.
      */
 
-    snprintf(nameRtrn, nameRtrnLen, "%s/%s-%s-%s-%s-%s-%s.xkm",
+    snprintf(nameRtrn, nameRtrnLen, "%s/%s-%s-%s-%s-%s.xkm",
              XkbBaseDirectory ? XkbBaseDirectory : "/nonexistent",
-             names->keymap ? names->keymap : "def",
              names->keycodes ? names->keycodes : "def",
              names->types ? names->types : "def",
              names->compat ? names->compat : "def",
