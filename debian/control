@@ -51,18 +51,11 @@ Build-Depends: debhelper (>= 4.0.0),
 Standards-Version: 3.7.3
 
 Package: xserver-xfbdev
-Architecture: alpha amd64 arm armeb armel hppa i386 ia64 lpia m32r m68k mips mipsel powerpc ppc64 sh3 sh3eb sh4 sh4eb sparc
+Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, xkb-data | xkm-data
 Description: Linux framebuffer device tiny X server
  xserver-xfbdev is a Linux framebuffer device tiny X server based on the
  kdrive X server.
- .
- More information about X.Org can be found at:
- <URL:http://www.X.org>
- <URL:http://xorg.freedesktop.org>
- <URL:http://lists.freedesktop.org/mailman/listinfo/xorg>
- .
- This package is built from the X.org xserver module.
 
 Package: xserver-xfbdev-dbg
 Architecture: any
