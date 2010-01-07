@@ -32,6 +32,22 @@
 #include <sys/ioctl.h>
 #include <X11/keysym.h>
 
+#ifdef KDRIVE_MOUSE
+extern KdPointerDriver	LinuxMouseDriver;
+extern KdPointerDriver	Ps2MouseDriver;
+extern KdPointerDriver	MsMouseDriver;
+#endif
+#ifdef TSLIB
+extern KdPointerDriver	TsDriver;
+#endif
+#ifdef KDRIVE_EVDEV
+extern KdPointerDriver	LinuxEvdevMouseDriver;
+extern KdKeyboardDriver LinuxEvdevKeyboardDriver;
+#endif
+#ifdef KDRIVE_KBD
+extern KdKeyboardDriver	LinuxKeyboardDriver;
+#endif
+
 static int  vtno;
 int  LinuxConsoleFd;
 static int  activeVT;
@@ -229,15 +245,21 @@ LinuxFini (void)
 void
 KdOsAddInputDrivers (void)
 {
+#ifdef KDRIVE_MOUSE
     KdAddPointerDriver(&LinuxMouseDriver);
     KdAddPointerDriver(&MsMouseDriver);
     KdAddPointerDriver(&Ps2MouseDriver);
+#endif
 #ifdef TSLIB
     KdAddPointerDriver(&TsDriver);
 #endif
+#ifdef KDRIVE_EVDEV
     KdAddPointerDriver(&LinuxEvdevMouseDriver);
-    KdAddKeyboardDriver(&LinuxKeyboardDriver);
     KdAddKeyboardDriver(&LinuxEvdevKeyboardDriver);
+#endif
+#ifdef KDRIVE_KBD
+    KdAddKeyboardDriver(&LinuxKeyboardDriver);
+#endif
 }
 
 static void
