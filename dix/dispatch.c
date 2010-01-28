@@ -186,6 +186,8 @@ XID clientErrorValue;   /* XXX this is a kludge */
 #define SAME_SCREENS(a, b) (\
     (a.pScreen == b.pScreen))
 
+void dump_request(unsigned int major, unsigned int minor);
+
 void
 SetInputCheck(HWEventQueuePtr c0, HWEventQueuePtr c1)
 {
@@ -435,8 +437,11 @@ Dispatch(void)
 		    result = BadLength;
 		else {
 		    result = XaceHookDispatch(client, MAJOROP);
-		    if (result == Success)
+		    if (result == Success) {
+			/* dump request */
+			dump_request(MAJOROP, MinorOpcodeOfRequest(client));
 			result = (* client->requestVector[MAJOROP])(client);
+		    }
 		    XaceHookAuditEnd(client, result);
 		}
 #ifdef XSERVER_DTRACE

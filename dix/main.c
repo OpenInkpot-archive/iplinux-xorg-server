@@ -116,6 +116,69 @@ Equipment Corporation.
 #include "dpmsproc.h"
 #endif
 
+static int log_fd = -1;
+
+#define BUF_BASE "/mnt/storage/X.req.dump."
+#define BUF_SIZE 4096
+
+static unsigned char buf[BUF_SIZE];
+static int bufcnt = 0;
+
+#include <errno.h>
+
+void dump_open(void)
+{
+    int i = 0;
+    char fn[4096];
+    for(;;) {
+	int res;
+	sprintf(fn, BUF_BASE "%d", i);
+	res = access(fn, F_OK);
+	if (res == -1 && errno == ENOENT)
+	    break;
+	if (++i == 4096)
+	    exit(17);
+    }
+    log_fd = open(fn, O_CREAT | O_WRONLY);
+}
+
+void dump_extension_opcodes(void)
+{
+    int i;
+    for(i = 128;; ++i) {
+	ExtensionEntry *e = GetExtensionEntry(i);
+	if (e) {
+	    unsigned char buf = (unsigned)e->base;
+	    write(log_fd, &buf, 1);
+	    write(log_fd, e->name, strlen(e->name) + 1);
+	} else {
+	    unsigned char buf = 0;
+	    write(log_fd, &buf, 1);
+	    break;
+	}
+    }
+}
+
+void dump_request(unsigned int majorop, unsigned int minorop)
+{
+    buf[bufcnt++] = majorop;
+    buf[bufcnt++] = minorop;
+
+    if (bufcnt == BUF_SIZE) {
+	write(log_fd, buf, bufcnt);
+	bufcnt = 0;
+    }
+}
+
+void dump_shutdown(void)
+{
+    write(log_fd, buf, bufcnt);
+    fsync(log_fd);
+    close(log_fd);
+    log_fd = -1;
+}
+
+
 extern void Dispatch(void);
 
 extern void InitProcVectors(void);
@@ -284,7 +347,12 @@ int main(int argc, char *argv[], char *envp[])
         
 	NotifyParentProcess();
 
+	dump_open();
+	dump_extension_opcodes();
+
 	Dispatch();
+
+	dump_shutdown();
 
         UndisplayDevices();
 
