@@ -67,6 +67,7 @@ confflags += \
 	--disable-xevie \
 	--disable-multibuffer \
 	--disable-dpms \
+	--disable-apm \
 	--disable-config-dbus \
 	--disable-config-hal \
 	--disable-xfree86-utils \
