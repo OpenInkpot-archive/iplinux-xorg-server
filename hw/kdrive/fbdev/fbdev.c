@@ -158,31 +158,26 @@ fbdevScreenInitialize (KdScreenInfo *screen, FbdevScrPriv *scrpriv)
     const KdMonitorTiming *t;
     int k;
 
+    /*
+     * There are two possible errors: EFAULT (wrong arg passed) and ENODEV
+     * (framebuffer device is not present). Just fail if errored out.
+     */
     k = ioctl (priv->fd, FBIOGET_VSCREENINFO, &var);
+    if (k < 0) {
+        perror("FBIOGET_VSCREENINFO");
+        return FALSE;
+    }
+
+    if (!screen->fb.depth)
+        screen->fb.depth = var.bits_per_pixel;
 
     if (!screen->width || !screen->height)
     {
-	if (k >= 0)
-	{
-	    screen->width = var.xres;
-	    screen->height = var.yres;
-	}
-	else
-	{
-	    screen->width = 1024;
-	    screen->height = 768;
-	}
+        screen->width = var.xres;
+        screen->height = var.yres;
 	screen->rate = 103; /* FIXME: should get proper value from fb driver */
     }
-    if (!screen->fb.depth)
-    {
-	if (k >= 0)
-	    screen->fb.depth = var.bits_per_pixel;
-	else
-	    screen->fb.depth = 16;
-    }
-
-    if ((screen->width != var.xres) || (screen->height != var.yres))
+    else if ((screen->width != var.xres) || (screen->height != var.yres))
     {
       t = KdFindMode (screen, fbdevModeSupported);
       screen->rate = t->rate;
