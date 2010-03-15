@@ -174,6 +174,35 @@ OutputDirectory(
     }
 }
 
+/*
+ * Returns True if precompiled keymap is found and conveys keymap name in
+ * keymapName variable.
+ *
+ * Returns False if no precompiled keymap is found or keymapName buffer is too
+ * small.
+ */
+static Bool
+XkbDDXGetPrecompiledKeymap(XkbComponentNamesPtr names,
+                           char *keymapName,
+                           int keymapNameLen)
+{
+    if (!XkbBaseDirectory)
+        return FALSE;
+
+    int ret = snprintf(keymapName, keymapNameLen,
+                       "%s/precompiled/%s-%s-%s-%s-%s.xkm",
+                       XkbBaseDirectory,
+                       names->keycodes ? names->keycodes : "def",
+                       names->types ? names->types : "def",
+                       names->compat ? names->compat : "def",
+                       names->symbols ? names->symbols : "def",
+                       names->geometry ? names->geometry : "def");
+    if (ret == keymapNameLen)
+        return FALSE;
+
+    return access(keymapName, R_OK) == 0;
+}
+
 static Bool
 XkbDDXCompileKeymapByNames(	XkbDescPtr		xkb,
 				XkbComponentNamesPtr	names,
@@ -336,6 +365,7 @@ XkbDDXLoadKeymapByNames(	DeviceIntPtr		keybd,
 XkbDescPtr      xkb;
 FILE	*	file;
 char		fileName[PATH_MAX];
+Bool		unlinkFile;
 unsigned	missing;
 
     *xkbRtrn = NULL;
@@ -349,12 +379,22 @@ unsigned	missing;
                    keybd->name ? keybd->name : "(unnamed keyboard)");
         return 0;
     }
-    else if (!XkbDDXCompileKeymapByNames(xkb,names,want,need,
-                                         nameRtrn,nameRtrnLen)){
-	LogMessage(X_ERROR, "XKB: Couldn't compile keymap\n");
-	return 0;
+
+    if (XkbDDXGetPrecompiledKeymap(names, nameRtrn, nameRtrnLen)) {
+        unlinkFile = FALSE;
+        strncpy(fileName, nameRtrn, PATH_MAX);
+        file = fopen(nameRtrn, "rb");
+    } else {
+        unlinkFile = TRUE;
+
+        if (!XkbDDXCompileKeymapByNames(xkb, names, want, need,
+                                        nameRtrn, nameRtrnLen)) {
+            LogMessage(X_ERROR, "XKB: Couldn't compile keymap\n");
+            return 0;
+        }
+        file= XkbDDXOpenConfigFile(nameRtrn,fileName,PATH_MAX);
     }
-    file= XkbDDXOpenConfigFile(nameRtrn,fileName,PATH_MAX);
+
     if (file==NULL) {
 	LogMessage(X_ERROR, "Couldn't open compiled keymap file %s\n",fileName);
 	return 0;
@@ -370,7 +410,8 @@ unsigned	missing;
 	DebugF("Loaded XKB keymap %s, defined=0x%x\n",fileName,(*xkbRtrn)->defined);
     }
     fclose(file);
-    (void) unlink (fileName);
+    if (unlinkFile)
+        unlink(fileName);
     return (need|want)&(~missing);
 }
 
