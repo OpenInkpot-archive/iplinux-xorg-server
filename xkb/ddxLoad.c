@@ -176,6 +176,32 @@ OutputDirectory(
     }
 }
 
+/*
+ * Returns True if precompiled keymap is found and conveys keymap name in
+ * keymapName variable.
+ *
+ * Returns False if no precompiled keymap is found or keymapName buffer is too
+ * small.
+ */
+static Bool
+XkbDDXGetPrecompiledKeymap(XkbComponentNamesPtr names,
+                           char *keymapName,
+                           int keymapNameLen)
+{
+    int ret = snprintf(keymapName, keymapNameLen,
+                       "%s/precompiled/%s-%s-%s-%s-%s.xkm",
+                       XkbBaseDirectory ? XkbBaseDirectory : "/nonexistent",
+                       names->keycodes ? names->keycodes : "def",
+                       names->types ? names->types : "def",
+                       names->compat ? names->compat : "def",
+                       names->symbols ? names->symbols : "def",
+                       names->geometry ? names->geometry : "def");
+    if (ret == keymapNameLen)
+        return False;
+
+    return access(keymapName, R_OK) == 0;
+}
+
 static Bool
 XkbDDXCompileKeymapByNames(	XkbDescPtr		xkb,
 				XkbComponentNamesPtr	names,
@@ -204,45 +230,6 @@ XkbDDXCompileKeymapByNames(	XkbDescPtr		xkb,
     snprintf(keymap, sizeof(keymap), "server-%s", display);
 
     OutputDirectory(xkm_output_dir, sizeof(xkm_output_dir));
-
-    /*
-     * First check for the existing pre-compiled xkb keymap.
-     */
-
-    snprintf(nameRtrn, nameRtrnLen, "%s/%s-%s-%s-%s-%s.xkm",
-             XkbBaseDirectory ? XkbBaseDirectory : "/nonexistent",
-             names->keycodes ? names->keycodes : "def",
-             names->types ? names->types : "def",
-             names->compat ? names->compat : "def",
-             names->symbols ? names->symbols : "def",
-             names->geometry ? names->geometry : "def");
-
-    if (access(nameRtrn, R_OK) == 0)
-    {
-        char output_keymap[PATH_MAX];
-
-        snprintf(output_keymap, PATH_MAX, "%s%s.xkm", xkm_output_dir, keymap);
-
-        int rc = link(nameRtrn, output_keymap);
-        if (rc == 0)
-        {
-            strncpy(nameRtrn, keymap, nameRtrnLen);
-            return True;
-        }
-        if (rc == -1 && errno == EXDEV)
-        {
-            /* Lazy way */
-            char cmdline[PATH_MAX];
-            snprintf(cmdline, PATH_MAX, "cp -f '%s' '%s",
-                     nameRtrn, output_keymap);
-
-            system(cmdline);
-
-            strncpy(nameRtrn, keymap, nameRtrnLen);
-            return True;
-        }
-    }
-
 
 #ifdef WIN32
     strcpy(tmpname, Win32TempDir());
@@ -377,6 +364,7 @@ XkbDDXLoadKeymapByNames(	DeviceIntPtr		keybd,
 XkbDescPtr      xkb;
 FILE	*	file;
 char		fileName[PATH_MAX];
+Bool		unlinkFile;
 unsigned	missing;
 
     *xkbRtrn = NULL;
@@ -390,12 +378,22 @@ unsigned	missing;
                    keybd->name ? keybd->name : "(unnamed keyboard)");
         return 0;
     }
-    else if (!XkbDDXCompileKeymapByNames(xkb,names,want,need,
-                                         nameRtrn,nameRtrnLen)){
-	LogMessage(X_ERROR, "XKB: Couldn't compile keymap\n");
-	return 0;
+
+    if (XkbDDXGetPrecompiledKeymap(names, nameRtrn, nameRtrnLen)) {
+        unlinkFile = False;
+        strncpy(fileName, nameRtrn, PATH_MAX);
+        file = fopen(nameRtrn, "rb");
+    } else {
+        unlinkFile = True;
+
+        if (!XkbDDXCompileKeymapByNames(xkb, names, want, need,
+                                        nameRtrn, nameRtrnLen)) {
+            LogMessage(X_ERROR, "XKB: Couldn't compile keymap\n");
+            return 0;
+        }
+        file= XkbDDXOpenConfigFile(nameRtrn,fileName,PATH_MAX);
     }
-    file= XkbDDXOpenConfigFile(nameRtrn,fileName,PATH_MAX);
+
     if (file==NULL) {
 	LogMessage(X_ERROR, "Couldn't open compiled keymap file %s\n",fileName);
 	return 0;
@@ -411,7 +409,8 @@ unsigned	missing;
 	DebugF("Loaded XKB keymap %s, defined=0x%x\n",fileName,(*xkbRtrn)->defined);
     }
     fclose(file);
-    (void) unlink (fileName);
+    if (unlinkFile)
+        unlink(fileName);
     return (need|want)&(~missing);
 }
 
