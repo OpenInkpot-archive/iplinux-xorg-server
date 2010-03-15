@@ -519,13 +519,7 @@ if test "$cross_compiling" != yes; then
 fi
 AC_ARG_WITH(default-font-path, AS_HELP_STRING([--with-default-font-path=PATH], [Comma separated list of font dirs]),
 				[ FONTPATH="$withval" ],
-				[ AC_CHECK_FILE([${sysconfdir}/X11/fontpath.d],
-					[DEFAULT_FONT_PATH='catalogue:${sysconfdir}/X11/fontpath.d'],
-					[DEFAULT_FONT_PATH="${FONTMISCDIR}/,${FONTTTFDIR}/,${FONTOTFDIR}/,${FONTTYPE1DIR}/,${FONT100DPIDIR}/,${FONT75DPIDIR}/"
-					  case $host_os in
-					    darwin*)    DEFAULT_FONT_PATH="${DEFAULT_FONT_PATH},/Library/Fonts,/System/Library/Fonts" ;;
-					  esac
-				  FONTPATH="${DEFAULT_FONT_PATH}" ])])
+				[ FONTPATH="${DEFAULT_FONT_PATH}" ])
 
 AC_MSG_CHECKING([for default font path])
 AC_MSG_RESULT([$FONTPATH])
