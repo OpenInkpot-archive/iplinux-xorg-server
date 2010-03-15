@@ -31,7 +31,10 @@
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <X11/keysym.h>
-#include <linux/apm_bios.h>
+
+#ifdef HAVE_APM
+#include "apm.h"
+#endif
 
 #ifdef KDRIVE_MOUSE
 extern KdPointerDriver	LinuxMouseDriver;
@@ -51,7 +54,6 @@ extern KdKeyboardDriver	LinuxKeyboardDriver;
 
 static int  vtno;
 int  LinuxConsoleFd;
-int  LinuxApmFd = -1;
 static int  activeVT;
 static Bool enabled;
 
@@ -180,65 +182,6 @@ LinuxSetSwitchMode (int mode)
 }
 
 static void
-LinuxApmBlock (pointer blockData, OSTimePtr pTimeout, pointer pReadmask)
-{
-}
-
-static Bool LinuxApmRunning;
-
-static void
-LinuxApmWakeup (pointer blockData, int result, pointer pReadmask)
-{
-    fd_set  *readmask = (fd_set *) pReadmask;
-
-    if (result > 0 && LinuxApmFd >= 0 && FD_ISSET (LinuxApmFd, readmask))
-    {
-	apm_event_t event;
-	Bool	    running = LinuxApmRunning;
-	int	    cmd = APM_IOC_SUSPEND;
-
-	while (read (LinuxApmFd, &event, sizeof (event)) == sizeof (event))
-	{
-	    switch (event) {
-	    case APM_SYS_STANDBY:
-	    case APM_USER_STANDBY:
-		running = FALSE;
-		cmd = APM_IOC_STANDBY;
-		break;
-	    case APM_SYS_SUSPEND:
-	    case APM_USER_SUSPEND:
-	    case APM_CRITICAL_SUSPEND:
-		running = FALSE;
-		cmd = APM_IOC_SUSPEND;
-		break;
-	    case APM_NORMAL_RESUME:
-	    case APM_CRITICAL_RESUME:
-	    case APM_STANDBY_RESUME:
-		running = TRUE;
-		break;
-	    }
-	}
-	if (running && !LinuxApmRunning)
-	{
-	    KdResume ();
-	    LinuxApmRunning = TRUE;
-	}
-	else if (!running && LinuxApmRunning)
-	{
-	    KdSuspend ();
-	    LinuxApmRunning = FALSE;
-	    ioctl (LinuxApmFd, cmd, 0);
-	}
-    }
-}
-
-#ifdef FNONBLOCK
-#define NOBLOCK FNONBLOCK
-#else
-#define NOBLOCK FNDELAY
-#endif
-
-static void
 LinuxEnable (void)
 {
     if (enabled)
@@ -248,19 +191,10 @@ LinuxEnable (void)
 	kdSwitchPending = FALSE;
 	ioctl (LinuxConsoleFd, VT_RELDISP, VT_ACKACQ);
     }
-    /*
-     * Open the APM driver
-     */
-    LinuxApmFd = open ("/dev/apm_bios", 2);
-    if (LinuxApmFd < 0 && errno == ENOENT)
-	LinuxApmFd = open ("/dev/misc/apm_bios", 2);
-    if (LinuxApmFd >= 0)
-    {
-	LinuxApmRunning = TRUE;
-	fcntl (LinuxApmFd, F_SETFL, fcntl (LinuxApmFd, F_GETFL) | NOBLOCK);
-	RegisterBlockAndWakeupHandlers (LinuxApmBlock, LinuxApmWakeup, 0);
-	AddEnabledDevice (LinuxApmFd);
-    }
+
+#ifdef HAVE_APM
+    LinuxApmOpen();
+#endif
 
     /*
      * now get the VT
@@ -292,13 +226,9 @@ LinuxDisable (void)
 	ioctl (LinuxConsoleFd, VT_RELDISP, 1);
     }
     enabled = FALSE;
-    if (LinuxApmFd >= 0)
-    {
-	RemoveBlockAndWakeupHandlers (LinuxApmBlock, LinuxApmWakeup, 0);
-	RemoveEnabledDevice (LinuxApmFd);
-	close (LinuxApmFd);
-	LinuxApmFd = -1;
-    }
+#ifdef HAVE_APM
+    LinuxApmClose();
+#endif
 }
 
 static void

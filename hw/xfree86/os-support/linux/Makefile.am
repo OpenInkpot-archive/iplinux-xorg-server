@@ -20,9 +20,11 @@ ACPI_SRCS = lnx_acpi.c lnx_apm.c
 XORG_CFLAGS += -DHAVE_ACPI
 endif
 
+if APM
 if LNXAPM
 APM_SRCS = lnx_apm.c
 XORG_CFLAGS += -DHAVE_APM
+endif
 endif
 
 liblinux_la_SOURCES = lnx_init.c lnx_video.c \
