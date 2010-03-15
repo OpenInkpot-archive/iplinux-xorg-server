@@ -296,7 +296,7 @@ updateSlaveDeviceCoords(DeviceIntPtr master, DeviceIntPtr pDev)
                         &pDev->last.remainder[0], NULL, pDev->valuator->axes + 0, scr->width);
     if(pDev->valuator->numAxes > 1)
         pDev->last.valuators[1] = rescaleValuatorAxis(pDev->last.valuators[1], pDev->last.remainder[1],
-                        &pDev->last.remainder[0], NULL, pDev->valuator->axes + 1, scr->height);
+                        &pDev->last.remainder[1], NULL, pDev->valuator->axes + 1, scr->height);
 
     /* calculate the other axis as well based on info from the old
      * slave-device. If the old slave had less axes than this one,
@@ -710,7 +710,7 @@ moveRelative(DeviceIntPtr dev, int *x, int *y,
     /* if attached, clip both x and y to the defined limits (usually
      * co-ord space limit). If it is attached, we need x/y to go over the
      * limits to be able to change screens. */
-    if(dev->u.master) {
+    if(dev->u.master && dev->valuator->mode == Absolute) {
         clipAxis(dev, 0, x);
         clipAxis(dev, 1, y);
     }
@@ -720,7 +720,8 @@ moveRelative(DeviceIntPtr dev, int *x, int *y,
     for (; i < num; i++)
     {
         dev->last.valuators[i + first] += valuators[i];
-        clipAxis(dev, i, &dev->last.valuators[i + first]);
+        if (dev->valuator->mode == Absolute)
+            clipAxis(dev, i, &dev->last.valuators[i + first]);
         valuators[i] = dev->last.valuators[i + first];
     }
 }

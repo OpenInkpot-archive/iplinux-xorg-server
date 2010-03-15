@@ -121,7 +121,7 @@ ProcessVelocityConfiguration(DeviceIntPtr pDev, char* devname, pointer list,
 
     /* common settings (available via device properties) */
     tempf = xf86SetRealOption(list, "ConstantDeceleration", 1.0);
-    if(tempf > 1.0){
+    if (tempf > 1.0) {
         xf86Msg(X_CONFIG, "%s: (accel) constant deceleration by %.1f\n",
                 devname, tempf);
         prop = XIGetKnownProperty(ACCEL_PROP_CONSTANT_DECELERATION);
@@ -130,7 +130,7 @@ ProcessVelocityConfiguration(DeviceIntPtr pDev, char* devname, pointer list,
     }
 
     tempf = xf86SetRealOption(list, "AdaptiveDeceleration", 1.0);
-    if(tempf > 1.0){
+    if (tempf > 1.0) {
         xf86Msg(X_CONFIG, "%s: (accel) adaptive deceleration by %.1f\n",
                 devname, tempf);
         prop = XIGetKnownProperty(ACCEL_PROP_ADAPTIVE_DECELERATION);
@@ -144,8 +144,7 @@ ProcessVelocityConfiguration(DeviceIntPtr pDev, char* devname, pointer list,
 
     prop = XIGetKnownProperty(ACCEL_PROP_PROFILE_NUMBER);
     if (XIChangeDeviceProperty(pDev, prop, XA_INTEGER, 32,
-                               PropModeReplace, 1, &tempi, FALSE) == Success)
-    {
+                               PropModeReplace, 1, &tempi, FALSE) == Success) {
         xf86Msg(X_CONFIG, "%s: (accel) acceleration profile %i\n", devname,
                 tempi);
     } else {
@@ -156,20 +155,19 @@ ProcessVelocityConfiguration(DeviceIntPtr pDev, char* devname, pointer list,
     /* set scaling */
     tempf = xf86SetRealOption(list, "ExpectedRate", 0);
     prop = XIGetKnownProperty(ACCEL_PROP_VELOCITY_SCALING);
-    if(tempf > 0){
+    if (tempf > 0) {
         tempf = 1000.0 / tempf;
         XIChangeDeviceProperty(pDev, prop, float_prop, 32,
                                PropModeReplace, 1, &tempf, FALSE);
-    }else{
+    } else {
         tempf = xf86SetRealOption(list, "VelocityScale", s->corr_mul);
         XIChangeDeviceProperty(pDev, prop, float_prop, 32,
                                PropModeReplace, 1, &tempf, FALSE);
     }
 
     tempi = xf86SetIntOption(list, "VelocityTrackerCount", -1);
-    if(tempi > 1){
+    if (tempi > 1)
 	InitTrackers(s, tempi);
-    }
 
     s->initial_range = xf86SetIntOption(list, "VelocityInitialRange",
                                         s->initial_range);
@@ -177,7 +175,7 @@ ProcessVelocityConfiguration(DeviceIntPtr pDev, char* devname, pointer list,
     s->max_diff = xf86SetRealOption(list, "VelocityAbsDiff", s->max_diff);
 
     tempf = xf86SetRealOption(list, "VelocityRelDiff", -1);
-    if(tempf >= 0){
+    if (tempf >= 0) {
 	xf86Msg(X_CONFIG, "%s: (accel) max rel. velocity difference: %.1f%%\n",
 	        devname, tempf*100.0);
 	s->max_rel_diff = tempf;
@@ -198,40 +196,40 @@ ProcessVelocityConfiguration(DeviceIntPtr pDev, char* devname, pointer list,
 
 static void
 ApplyAccelerationSettings(DeviceIntPtr dev){
-    int scheme;
+    int scheme, i;
     DeviceVelocityPtr pVel;
     LocalDevicePtr local = (LocalDevicePtr)dev->public.devicePrivate;
     char* schemeStr;
 
-    if(dev->valuator){
+    if (dev->valuator && dev->ptrfeed) {
 	schemeStr = xf86SetStrOption(local->options, "AccelerationScheme", "");
 
 	scheme = dev->valuator->accelScheme.number;
 
-	if(!xf86NameCmp(schemeStr, "predictable"))
+	if (!xf86NameCmp(schemeStr, "predictable"))
 	    scheme = PtrAccelPredictable;
 
-	if(!xf86NameCmp(schemeStr, "lightweight"))
+	if (!xf86NameCmp(schemeStr, "lightweight"))
 	    scheme = PtrAccelLightweight;
 
-	if(!xf86NameCmp(schemeStr, "none"))
+	if (!xf86NameCmp(schemeStr, "none"))
 	    scheme = PtrAccelNoOp;
 
         /* reinit scheme if needed */
-        if(dev->valuator->accelScheme.number != scheme){
-            if(dev->valuator->accelScheme.AccelCleanupProc){
+        if (dev->valuator->accelScheme.number != scheme) {
+            if (dev->valuator->accelScheme.AccelCleanupProc) {
                 dev->valuator->accelScheme.AccelCleanupProc(dev);
             }
 
-            if(InitPointerAccelerationScheme(dev, scheme)){
+            if (InitPointerAccelerationScheme(dev, scheme)) {
 		xf86Msg(X_CONFIG, "%s: (accel) selected scheme %s/%i\n",
 		        local->name, schemeStr, scheme);
-	    }else{
+	    } else {
         	xf86Msg(X_CONFIG, "%s: (accel) could not init scheme %s\n",
         	        local->name, schemeStr);
         	scheme = dev->valuator->accelScheme.number;
             }
-        }else{
+        } else {
             xf86Msg(X_CONFIG, "%s: (accel) keeping acceleration scheme %i\n",
                     local->name, scheme);
         }
@@ -239,13 +237,37 @@ ApplyAccelerationSettings(DeviceIntPtr dev){
         xfree(schemeStr);
 
         /* process special configuration */
-        switch(scheme){
+        switch (scheme) {
             case PtrAccelPredictable:
                 pVel = GetDevicePredictableAccelData(dev);
                 ProcessVelocityConfiguration (dev, local->name, local->options,
                                               pVel);
                 break;
         }
+
+        i = xf86SetIntOption(local->options, "AccelerationNumerator",
+                             dev->ptrfeed->ctrl.num);
+        if (i >= 0)
+            dev->ptrfeed->ctrl.num = i;
+
+        i = xf86SetIntOption(local->options, "AccelerationDenominator",
+                             dev->ptrfeed->ctrl.den);
+        if (i > 0)
+            dev->ptrfeed->ctrl.den = i;
+
+        i = xf86SetIntOption(local->options, "AccelerationThreshold",
+                             dev->ptrfeed->ctrl.threshold);
+        if (i >= 0)
+            dev->ptrfeed->ctrl.threshold = i;
+
+        /* mostly a no-op anyway */
+        (*dev->ptrfeed->CtrlProc)(dev, &dev->ptrfeed->ctrl);
+
+        xf86Msg(X_CONFIG, "%s: (accel) acceleration factor: %.3f\n",
+                            local->name, ((float)dev->ptrfeed->ctrl.num)/
+                                         ((float)dev->ptrfeed->ctrl.den));
+        xf86Msg(X_CONFIG, "%s: (accel) acceleration threshold: %i\n",
+                local->name, dev->ptrfeed->ctrl.threshold);
     }
 }
 
@@ -480,76 +502,147 @@ AddOtherInputDevices(void)
 static Bool
 InputClassMatches(XF86ConfInputClassPtr iclass, InputAttributes *attrs)
 {
-    if (iclass->match_product &&
-        (!attrs->product || !strstr(attrs->product, iclass->match_product)))
-        return False;
-    if (iclass->match_vendor &&
-        (!attrs->vendor || !strstr(attrs->vendor, iclass->match_vendor)))
-        return False;
-    if (iclass->match_device &&
+    char **cur;
+    Bool match;
+
+    if (iclass->match_product) {
+        if (!attrs->product)
+            return FALSE;
+        /* see if any of the values match */
+        for (cur = iclass->match_product, match = FALSE; *cur; cur++)
+            if (strstr(attrs->product, *cur)) {
+                match = TRUE;
+                break;
+            }
+        if (!match)
+            return FALSE;
+    }
+    if (iclass->match_vendor) {
+        if (!attrs->vendor)
+            return FALSE;
+        /* see if any of the values match */
+        for (cur = iclass->match_vendor, match = FALSE; *cur; cur++)
+            if (strstr(attrs->vendor, *cur)) {
+                match = TRUE;
+                break;
+            }
+        if (!match)
+            return FALSE;
+    }
+    if (iclass->match_device) {
+        if (!attrs->device)
+            return FALSE;
+        /* see if any of the values match */
+        for (cur = iclass->match_device, match = FALSE; *cur; cur++)
 #ifdef HAVE_FNMATCH_H
-        (!attrs->device ||
-         fnmatch(iclass->match_device, attrs->device, 0) != 0))
+            if (fnmatch(*cur, attrs->device, FNM_PATHNAME) == 0) {
 #else
-        (!attrs->device || !strstr(attrs->device, iclass->match_device)))
+            if (strstr(attrs->device, *cur)) {
 #endif
-        return False;
+                match = TRUE;
+                break;
+            }
+        if (!match)
+            return FALSE;
+    }
+    if (iclass->match_tag) {
+        if (!attrs->tags)
+            return FALSE;
+
+        for (cur = iclass->match_tag, match = FALSE; *cur && !match; cur++) {
+            const char *tag;
+            for(tag = *attrs->tags; *tag; tag++) {
+                if (!strcmp(tag, *cur)) {
+                    match = TRUE;
+                    break;
+                }
+            }
+        }
+
+        if (!match)
+            return FALSE;
+    }
+
     if (iclass->is_keyboard.set &&
         iclass->is_keyboard.val != !!(attrs->flags & ATTR_KEYBOARD))
-        return False;
+        return FALSE;
     if (iclass->is_pointer.set &&
         iclass->is_pointer.val != !!(attrs->flags & ATTR_POINTER))
-        return False;
+        return FALSE;
     if (iclass->is_joystick.set &&
         iclass->is_joystick.val != !!(attrs->flags & ATTR_JOYSTICK))
-        return False;
+        return FALSE;
     if (iclass->is_tablet.set &&
         iclass->is_tablet.val != !!(attrs->flags & ATTR_TABLET))
-        return False;
+        return FALSE;
     if (iclass->is_touchpad.set &&
         iclass->is_touchpad.val != !!(attrs->flags & ATTR_TOUCHPAD))
-        return False;
+        return FALSE;
     if (iclass->is_touchscreen.set &&
         iclass->is_touchscreen.val != !!(attrs->flags & ATTR_TOUCHSCREEN))
-        return False;
-    return True;
+        return FALSE;
+    return TRUE;
 }
 
 /*
- * Merge in any InputClass configurations. Each InputClass section can
- * add to the original device configuration as well as any previous
- * InputClass sections.
+ * Merge in any InputClass configurations. Options in each InputClass
+ * section have more priority than the original device configuration as
+ * well as any previous InputClass sections.
  */
 static int
 MergeInputClasses(IDevPtr idev, InputAttributes *attrs)
 {
     XF86ConfInputClassPtr cl;
-    XF86OptionPtr classopts;
+    XF86OptionPtr classopts, mergedopts = NULL;
+    char *classdriver = NULL;
 
     for (cl = xf86configptr->conf_inputclass_lst; cl; cl = cl->list.next) {
         if (!InputClassMatches(cl, attrs))
             continue;
 
+        /* Collect class options and merge over previous classes */
         xf86Msg(X_CONFIG, "%s: Applying InputClass \"%s\"\n",
                 idev->identifier, cl->identifier);
-        if (cl->driver && !idev->driver) {
-            idev->driver = xstrdup(cl->driver);
-            if (!idev->driver) {
-                xf86Msg(X_ERROR, "Could not allocate memory while merging "
-                        "InputClass configuration");
-                return BadAlloc;
-            }
-        }
-
+        if (cl->driver)
+            classdriver = cl->driver;
         classopts = xf86optionListDup(cl->option_lst);
-        if (idev->commonOptions)
-            idev->commonOptions = xf86optionListMerge(classopts,
-                                                      idev->commonOptions);
-        else
-            idev->commonOptions = classopts;
+        mergedopts = xf86optionListMerge(mergedopts, classopts);
     }
 
+    /* Apply options to device with InputClass settings preferred. */
+    if (classdriver) {
+        xfree(idev->driver);
+        idev->driver = xstrdup(classdriver);
+        if (!idev->driver) {
+            xf86Msg(X_ERROR, "Failed to allocate memory while merging "
+                    "InputClass configuration");
+            return BadAlloc;
+        }
+    }
+    idev->commonOptions = xf86optionListMerge(idev->commonOptions, mergedopts);
+
     return Success;
+}
+
+static Bool
+IgnoreInputClass(IDevPtr idev, InputAttributes *attrs)
+{
+    XF86ConfInputClassPtr cl;
+    Bool ignore;
+
+    for (cl = xf86configptr->conf_inputclass_lst; cl; cl = cl->list.next) {
+        if (!InputClassMatches(cl, attrs))
+            continue;
+        if (xf86findOption(cl->option_lst, "Ignore")) {
+            ignore = xf86CheckBoolOption(cl->option_lst, "Ignore", FALSE);
+            if (ignore)
+                xf86Msg(X_CONFIG,
+                        "%s: Ignoring device from InputClass \"%s\"\n",
+                        idev->identifier, cl->identifier);
+            return ignore;
+        }
+    }
+    return FALSE;
 }
 
 /**
@@ -714,6 +807,11 @@ NewInputDeviceRequest (InputOption *options, InputAttributes *attrs,
 
     /* Apply InputClass settings */
     if (attrs) {
+        if (IgnoreInputClass(idev, attrs)) {
+            rval = BadIDChoice;
+            goto unwind;
+        }
+
         rval = MergeInputClasses(idev, attrs);
         if (rval != Success)
             goto unwind;

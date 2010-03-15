@@ -877,13 +877,43 @@ CloseDevice(DeviceIntPtr dev)
 }
 
 /**
+ * Shut down all devices of one list and free all resources.
+ */
+static
+void
+CloseDeviceList(DeviceIntPtr *listHead)
+{
+    /* Used to mark devices that we tried to free */
+    Bool freedIds[MAXDEVICES];
+    DeviceIntPtr dev;
+    int i;
+
+    if (listHead == NULL)
+        return;
+
+    for (i = 0; i < MAXDEVICES; i++)
+        freedIds[i] = FALSE;
+
+    dev = *listHead;
+    while (dev != NULL)
+    {
+        freedIds[dev->id] = TRUE;
+        DeleteInputDeviceRequest(dev);
+
+        dev = *listHead;
+        while (dev != NULL && freedIds[dev->id])
+            dev = dev->next;
+    }
+}
+
+/**
  * Shut down all devices, free all resources, etc.
  * Only useful if you're shutting down the server!
  */
 void
 CloseDownDevices(void)
 {
-    DeviceIntPtr dev, next;
+    DeviceIntPtr dev;
 
     /* Float all SDs before closing them. Note that at this point resources
      * (e.g. cursors) have been freed already, so we can't just call
@@ -896,16 +926,8 @@ CloseDownDevices(void)
             dev->u.master = NULL;
     }
 
-    for (dev = inputInfo.devices; dev; dev = next)
-    {
-	next = dev->next;
-        DeleteInputDeviceRequest(dev);
-    }
-    for (dev = inputInfo.off_devices; dev; dev = next)
-    {
-	next = dev->next;
-        DeleteInputDeviceRequest(dev);
-    }
+    CloseDeviceList(&inputInfo.devices);
+    CloseDeviceList(&inputInfo.off_devices);
 
     CloseDevice(inputInfo.pointer);
     CloseDevice(inputInfo.keyboard);
@@ -1997,14 +2019,6 @@ ProcBell(ClientPtr client)
 	client->errorValue = stuff->percent;
 	return BadValue;
     }
-
-    /* Seems like no keyboard actually has the BellProc set. Returning
-     * BadDevice (previous code) will make apps crash badly. The man pages
-     * doesn't say anything about a BadDevice being returned either.
-     * So just quietly do nothing and pretend everything has worked.
-     */
-    if (!keybd->kbdfeed->BellProc)
-        return Success;
 
     newpercent = (base * stuff->percent) / 100;
     if (stuff->percent < 0)

@@ -260,6 +260,7 @@ static void DarwinBuildModifierMaps(darwinKeyboardInfo *info) {
                 break;
 
             case XK_Mode_switch:
+                ErrorF("DarwinBuildModifierMaps: XK_Mode_switch encountered, unable to determine side.\n");
                 info->modifierKeycodes[NX_MODIFIERKEY_ALTERNATE][0] = i;
 #ifdef NX_MODIFIERKEY_RALTERNATE
                 info->modifierKeycodes[NX_MODIFIERKEY_RALTERNATE][0] = i;
@@ -299,9 +300,6 @@ void DarwinKeyboardInit(DeviceIntPtr pDev) {
     // Note that the Event Status Driver is really just a wrapper
     // for a kIOHIDParamConnectType connection.
     assert(darwinParamConnect = NXOpenEventStatus());
-
-    /* We need to really have rules... or something... */
-    //XkbSetRulesDflts("base", "pc105", "us", NULL, NULL);
 
     InitKeyboardDeviceStruct(pDev, NULL, DarwinKeyboardBell, DarwinChangeKeyboardControl);
 
@@ -367,7 +365,7 @@ void DarwinKeyboardReloadHandler(void) {
     KeySymsRec keySyms;
     CFIndex initialKeyRepeatValue, keyRepeatValue;
     BOOL ok;
-    DeviceIntPtr pDev = darwinKeyboard;
+    DeviceIntPtr pDev;
     const char *xmodmap = PROJECTROOT "/bin/xmodmap";
     const char *sysmodmap = PROJECTROOT "/lib/X11/xinit/.Xmodmap";
     const char *homedir = getenv("HOME");
@@ -388,7 +386,6 @@ void DarwinKeyboardReloadHandler(void) {
     
     pthread_mutex_lock(&keyInfo_mutex); {
         /* Initialize our keySyms */
-        DarwinBuildModifierMaps(&keyInfo);
         keySyms.map = keyInfo.keyMap;
         keySyms.mapWidth   = GLYPHS_PER_KEY;
         keySyms.minKeyCode = MIN_KEYCODE;
@@ -775,12 +772,9 @@ Bool QuartzReadSystemKeymap(darwinKeyboardInfo *info) {
 #endif
         }
 
-        // There seems to be an issue with this in 1.5+, shift-space is not
-        // producing space, it's sending NoSymbol... ?
-        //if (k[3] == k[2]) k[3] = NoSymbol;
-        //if (k[1] == k[0]) k[1] = NoSymbol;
-        //if (k[0] == k[2] && k[1] == k[3]) k[2] = k[3] = NoSymbol;
-        //if (k[3] == k[0] && k[2] == k[1] && k[2] == NoSymbol) k[3] = NoSymbol;
+        if (k[3] == k[2]) k[3] = NoSymbol;
+        if (k[1] == k[0]) k[1] = NoSymbol;
+        if (k[0] == k[2] && k[1] == k[3]) k[2] = k[3] = NoSymbol;
     }
 
     /* Fix up some things that are normally missing.. */
@@ -791,7 +785,7 @@ Bool QuartzReadSystemKeymap(darwinKeyboardInfo *info) {
 
             if    (k[0] == NoSymbol && k[1] == NoSymbol
                 && k[2] == NoSymbol && k[3] == NoSymbol)
-	      k[0] = k[1] = k[2] = k[3] = known_keys[i].keysym;
+	      k[0] = known_keys[i].keysym;
         }
     }
 
@@ -804,9 +798,11 @@ Bool QuartzReadSystemKeymap(darwinKeyboardInfo *info) {
             k = info->keyMap + known_numeric_keys[i].keycode * GLYPHS_PER_KEY;
 
             if (k[0] == known_numeric_keys[i].normal)
-                k[0] = k[1] = k[2] = k[3] = known_numeric_keys[i].keypad;
+                k[0] = known_numeric_keys[i].keypad;
         }
     }
+
+    DarwinBuildModifierMaps(info);
 
     return TRUE;
 }

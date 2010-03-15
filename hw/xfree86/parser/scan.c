@@ -227,13 +227,15 @@ xf86getNextLine(void)
 			    configFiles[curFileIndex].file);
 
 		if (!ret) {
-			/* stop if there are no more files */
-			if (++curFileIndex >= numFiles) {
-				curFileIndex = 0;
+			/*
+			 * if the file doesn't end in a newline, add one
+			 * and trigger another read
+			 */
+			if (pos != 0) {
+				strcpy(&configBuf[pos], "\n");
+				ret = configBuf;
+			} else
 				break;
-			}
-			configLineNo = 0;
-			continue;
 		}
 
 		/* search for EOL in the new block of chars */
@@ -338,7 +340,17 @@ again:
 			}
 			if (ret == NULL)
 			{
-				return (pushToken = EOF_TOKEN);
+				/*
+				 * if necessary, move to the next file and
+				 * read the first line
+				 */
+				if (curFileIndex + 1 < numFiles) {
+					curFileIndex++;
+					configLineNo = 0;
+					goto again;
+				}
+				else
+					return (pushToken = EOF_TOKEN);
 			}
 			configLineNo++;
 			configPos = 0;
@@ -1195,21 +1207,21 @@ xf86getBoolValue(Bool *val, const char *str)
 	if (*str == '\0') {
 		*val = TRUE;
 	} else {
-		if (strcmp(str, "1") == 0)
+		if (xf86nameCompare(str, "1") == 0)
 			*val = TRUE;
-		else if (strcmp(str, "on") == 0)
+		else if (xf86nameCompare(str, "on") == 0)
 			*val = TRUE;
-		else if (strcmp(str, "true") == 0)
+		else if (xf86nameCompare(str, "true") == 0)
 			*val = TRUE;
-		else if (strcmp(str, "yes") == 0)
+		else if (xf86nameCompare(str, "yes") == 0)
 			*val = TRUE;
-		else if (strcmp(str, "0") == 0)
+		else if (xf86nameCompare(str, "0") == 0)
 			*val = FALSE;
-		else if (strcmp(str, "off") == 0)
+		else if (xf86nameCompare(str, "off") == 0)
 			*val = FALSE;
-		else if (strcmp(str, "false") == 0)
+		else if (xf86nameCompare(str, "false") == 0)
 			*val = FALSE;
-		else if (strcmp(str, "no") == 0)
+		else if (xf86nameCompare(str, "no") == 0)
 			*val = FALSE;
 		else
 			return FALSE;

@@ -26,17 +26,18 @@ dnl
 dnl Process this file with autoconf to create configure.
 
 AC_PREREQ(2.57)
-AC_INIT([xorg-server], 1.7.99.3, [https://bugs.freedesktop.org/enter_bug.cgi?product=xorg], xorg-server)
-RELEASE_DATE="(unreleased)"
+AC_INIT([xorg-server], 1.7.99.901, [https://bugs.freedesktop.org/enter_bug.cgi?product=xorg], xorg-server)
+RELEASE_DATE="2010-02-12"
 AC_CONFIG_SRCDIR([Makefile.am])
 AM_INIT_AUTOMAKE([foreign dist-bzip2])
 AM_MAINTAINER_MODE
 
 # Require xorg-macros: XORG_DEFAULT_OPTIONS
 m4_ifndef([XORG_MACROS_VERSION],
-          [m4_fatal([must install xorg-macros 1.3 or later before running autoconf/autogen])])
-XORG_MACROS_VERSION(1.3)
+          [m4_fatal([must install xorg-macros 1.5 or later before running autoconf/autogen])])
+XORG_MACROS_VERSION(1.5)
 XORG_DEFAULT_OPTIONS
+XORG_WITH_DOXYGEN
 
 m4_ifndef([XORG_FONT_MACROS_VERSION], [m4_fatal([must install fontutil 1.1 or later before running autoconf/autogen])])
 XORG_FONT_MACROS_VERSION(1.1)
@@ -426,6 +427,9 @@ case $host_os in
   darwin*)
 	AC_DEFINE(CSRG_BASED, 1, [System is BSD-like])
 	;;
+  cygwin*)
+	CFLAGS="$CFLAGS -DFD_SETSIZE=256"
+	;;
 esac
 
 dnl augment XORG_RELEASE_VERSION for our snapshot number and to expose the
@@ -503,7 +507,16 @@ XORG_FONTSUBDIR(FONT75DPIDIR, font75dpidir, 75dpi)
 XORG_FONTSUBDIR(FONT100DPIDIR, font100dpidir, 100dpi)
 
 dnl Uses --default-font-path if set, otherwise checks for /etc/X11/fontpath.d,
-dnl otherwise uses standard subdirectories of FONTROOTDIR
+dnl otherwise uses standard subdirectories of FONTROOTDIR. When cross
+dnl compiling, assume default font path uses standard FONTROOTDIR directories.
+DEFAULT_FONT_PATH="${FONTMISCDIR}/,${FONTTTFDIR}/,${FONTOTFDIR}/,${FONTTYPE1DIR}/,${FONT100DPIDIR}/,${FONT75DPIDIR}/"
+if test "$cross_compiling" != yes; then
+	AC_CHECK_FILE([${sysconfdir}/X11/fontpath.d],
+		[DEFAULT_FONT_PATH='catalogue:${sysconfdir}/X11/fontpath.d'],
+		[case $host_os in
+			darwin*) DEFAULT_FONT_PATH="${DEFAULT_FONT_PATH},/Library/Fonts,/System/Library/Fonts" ;;
+		esac])
+fi
 AC_ARG_WITH(default-font-path, AS_HELP_STRING([--with-default-font-path=PATH], [Comma separated list of font dirs]),
 				[ FONTPATH="$withval" ],
 				[ AC_CHECK_FILE([${sysconfdir}/X11/fontpath.d],
@@ -513,6 +526,9 @@ AC_ARG_WITH(default-font-path, AS_HELP_STRING([--with-default-font-path=PATH], [
 					    darwin*)    DEFAULT_FONT_PATH="${DEFAULT_FONT_PATH},/Library/Fonts,/System/Library/Fonts" ;;
 					  esac
 				  FONTPATH="${DEFAULT_FONT_PATH}" ])])
+
+AC_MSG_CHECKING([for default font path])
+AC_MSG_RESULT([$FONTPATH])
 
 AC_ARG_WITH(xkb-path,         AS_HELP_STRING([--with-xkb-path=PATH], [Path to XKB base dir (default: ${datadir}/X11/xkb)]),
 				[ XKBPATH="$withval" ],
@@ -569,9 +585,6 @@ AC_ARG_ENABLE(install-libxf86config,
 				[Install libxf86config (default: disabled)]),
 				[INSTALL_LIBXF86CONFIG=$enableval],
 				[INSTALL_LIBXF86CONFIG=no])
-AC_ARG_ENABLE(null-root-cursor, AS_HELP_STRING([--enable-null-root-cursor], [Use an empty root cursor (default: use core cursor)]),
-                                 [NULL_ROOT_CURSOR=$enableval],
-                                 [NULL_ROOT_CURSOR=no])
 AC_ARG_ENABLE(visibility,     AC_HELP_STRING([--enable-visibility], [Enable symbol visibility (default: auto)]),
 				[SYMBOL_VISIBILITY=$enableval],
 				[SYMBOL_VISIBILITY=auto])
@@ -640,9 +653,9 @@ AC_ARG_ENABLE(xephyr,         AS_HELP_STRING([--enable-xephyr], [Build the kdriv
 AC_ARG_ENABLE(xfake,          AS_HELP_STRING([--enable-xfake], [Build the kdrive 'fake' server (default: auto)]), [XFAKE=$enableval], [XFAKE=auto])
 AC_ARG_ENABLE(xfbdev,         AS_HELP_STRING([--enable-xfbdev], [Build the kdrive framebuffer device server (default: auto)]), [XFBDEV=$enableval], [XFBDEV=auto])
 dnl kdrive options
-AC_ARG_ENABLE(kdrive-kbd,     AS_HELP_STRING([--enable-kdrive-kbd], [Build kbd driver for kdrive (default: enabled)]), [KDRIVE_KBD=$enableval], [KDRIVE_KBD=yes])
-AC_ARG_ENABLE(kdrive-mouse,   AC_HELP_STRING([--enable-kdrive-mouse], [Build mouse driver for kdrive (default: enabled)]), [KDRIVE_MOUSE=$enableval], [KDRIVE_MOUSE=yes])
-AC_ARG_ENABLE(kdrive-evdev,   AC_HELP_STRING([--enable-kdrive-evdev], [Build evdev driver for kdrive (default: enabled)]), [KDRIVE_EVDEV=$enableval], [KDRIVE_EVDEV=yes])
+AC_ARG_ENABLE(kdrive-kbd,     AS_HELP_STRING([--enable-kdrive-kbd], [Build kbd driver for kdrive (default: auto)]), [KDRIVE_KBD=$enableval], [KDRIVE_KBD=auto])
+AC_ARG_ENABLE(kdrive-mouse,   AC_HELP_STRING([--enable-kdrive-mouse], [Build mouse driver for kdrive (default: auto)]), [KDRIVE_MOUSE=$enableval], [KDRIVE_MOUSE=auto])
+AC_ARG_ENABLE(kdrive-evdev,   AC_HELP_STRING([--enable-kdrive-evdev], [Build evdev driver for kdrive (default: auto)]), [KDRIVE_EVDEV=$enableval], [KDRIVE_EVDEV=auto])
 
 
 dnl chown/chmod to be setuid root as part of build
@@ -753,12 +766,12 @@ RECORDPROTO="recordproto >= 1.13.99.1"
 SCRNSAVERPROTO="scrnsaverproto >= 1.1"
 RESOURCEPROTO="resourceproto"
 DRIPROTO="xf86driproto >= 2.1.0"
-DRI2PROTO="dri2proto >= 2.1"
+DRI2PROTO="dri2proto >= 2.2"
 XINERAMAPROTO="xineramaproto"
 BIGFONTPROTO="xf86bigfontproto >= 1.2.0"
 XCALIBRATEPROTO="xcalibrateproto"
 DGAPROTO="xf86dgaproto >= 2.0.99.1"
-GLPROTO="glproto >= 1.4.9"
+GLPROTO="glproto >= 1.4.10"
 DMXPROTO="dmxproto >= 2.2.99.1"
 VIDMODEPROTO="xf86vidmodeproto >= 2.2.99.1"
 WINDOWSWMPROTO="windowswmproto"
@@ -771,7 +784,7 @@ REQUIRED_LIBS="xfont xau [pixman-1 >= 0.15.20]"
 dnl List of libraries that require a specific version
 LIBAPPLEWM="applewm >= 1.4"
 LIBDMX="dmx >= 1.0.99.1"
-LIBDRI="dri >= 7.1.0"
+LIBDRI="dri >= 7.8.0"
 LIBDRM="libdrm >= 2.3.0"
 LIBGL="gl >= 7.1.0"
 LIBXEXT="xext >= 1.0.99.4"
@@ -780,6 +793,7 @@ LIBXTST="xtst >= 1.0.99.2"
 LIBPCIACCESS="pciaccess >= 0.8.0"
 LIBGLIB="glib-2.0 >= 2.16"
 LIBUDEV="libudev >= 143"
+LIBSELINUX="libselinux >= 2.0.86"
 
 if test "x$CONFIG_UDEV" = xyes &&
  { test "x$CONFIG_DBUS_API" = xyes || test "x$CONFIG_HAL" = xyes; }; then
@@ -1050,16 +1064,11 @@ if test "x$XSELINUX" = xyes; then
 	if test "x$XACE" != xyes; then
 		AC_MSG_ERROR([cannot build SELinux extension without X-ACE])
 	fi
-	AC_CHECK_HEADERS([selinux/selinux.h selinux/avc.h], [], AC_MSG_ERROR([SELinux include files not found]))
-	AC_CHECK_LIB(selinux, avc_init, [], AC_MSG_ERROR([SELinux library not found])) 
 	AC_CHECK_HEADERS([libaudit.h], [], AC_MSG_ERROR([SELinux extension requires audit system headers]))
 	AC_CHECK_LIB(audit, audit_open, [], AC_MSG_ERROR([SELinux extension requires audit system library]))
-        AC_CHECK_DECL(avc_netlink_acquire_fd,
-                      [AC_DEFINE(HAVE_AVC_NETLINK_ACQUIRE_FD, 1, "Have avc_netlink_acquire_fd")],
-                      [],
-                      [#include <selinux/avc.h>])
+	PKG_CHECK_MODULES([SELINUX], $LIBSELINUX)
+	SELINUX_LIBS="$SELINUX_LIBS -laudit"
 	AC_DEFINE(XSELINUX, 1, [Build SELinux extension])
-	SELINUX_LIB="-lselinux -laudit"
 fi
 
 AM_CONDITIONAL(XCSECURITY, [test "x$XCSECURITY" = xyes])
@@ -1185,10 +1194,6 @@ AC_CHECK_FUNC(strncasecmp, [], AC_DEFINE([NEED_STRNCASECMP], 1,
                                         [Do not have 'strncasecmp'.]))
 AC_CHECK_FUNC(strcasestr, [], AC_DEFINE([NEED_STRCASESTR], 1,
                                        [Do not have 'strcasestr'.]))
-
-if test "x$NULL_ROOT_CURSOR" = xyes; then
-        AC_DEFINE(NULL_ROOT_CURSOR, 1, [Use an empty root cursor])
-fi
 
 PKG_CHECK_MODULES([XDMCP], [xdmcp], [have_libxdmcp="yes"], [have_libxdmcp="no"])
 if test "x$have_libxdmcp" = xyes; then
@@ -1583,7 +1588,7 @@ if test "x$XORG" = xyes; then
 	AC_CHECK_FUNCS([pci_device_vgaarb_init])
 	LIBS=$SAVE_LIBS
 	CFLAGS=$SAVE_CFLAGS
-	XORG_SYS_LIBS="$XORG_SYS_LIBS $PCIACCESS_LIBS $GLX_SYS_LIBS $SELINUX_LIB"
+	XORG_SYS_LIBS="$XORG_SYS_LIBS $PCIACCESS_LIBS $GLX_SYS_LIBS"
 	XORG_CFLAGS="$XORG_CFLAGS $PCIACCESS_CFLAGS"
 
 	case $host_os in
@@ -1831,7 +1836,9 @@ AC_MSG_RESULT([$XWIN])
 
 if test "x$XWIN" = xyes; then
 	PKG_CHECK_EXISTS($WINDOWSWMPROTO, [WINDOWSWM=yes], [WINDOWSWM=no])
+	AC_DEFINE_DIR(SYSCONFDIR, sysconfdir, [Location of system.XWinrc])
 	AC_DEFINE_UNQUOTED(XORG_VERSION_CURRENT, [$VENDOR_RELEASE], [Current Xorg version])
+	AC_DEFINE_UNQUOTED(__VENDORDWEBSUPPORT__, ["$VENDOR_WEB"], [Vendor web address for support])
 	AC_CHECK_TOOL(WINDRES, windres)
 	case $host_os in
 		cygwin*)
@@ -1844,8 +1851,6 @@ if test "x$XWIN" = xyes; then
 			       AC_DEFINE(ROOTLESS,1,[Build Rootless code])
 			       CFLAGS="$CFLAGS -DROOTLESS_WORKAROUND"
 			fi
-
-			CFLAGS="$CFLAGS -DFD_SETSIZE=256"
 			;;
 		mingw*)
 			XWIN_SERVER_NAME=Xming
@@ -1943,8 +1948,6 @@ fi
 AC_MSG_RESULT([$DMX])
 AM_CONDITIONAL(DMX, [test "x$DMX" = xyes])
 
-DOXYGEN="not_found"
-
 if test "x$DMX" = xyes; then
 	if test "x$have_dmx" = xno; then
 		AC_MSG_ERROR([Xdmx build explicitly requested, but required
@@ -1980,12 +1983,6 @@ dnl Linux sources in DMX require <linux/keyboard.h>
 	AC_SUBST(X11EXAMPLES_DEP_LIBS)
 
 fi
-AC_PATH_PROG(DOXYGEN,doxygen,[not_found])
-if test "x$DOXYGEN" = "xnot_found" ; then
-    AC_MSG_WARN([doxygen not found in $PATH. Cannot build dmx documentation])
-fi
-AC_SUBST(DOXYGEN)
-AM_CONDITIONAL([HAVE_DOXYGEN], [test "x$DOXYGEN" != "xnot_found"])
 AM_CONDITIONAL([DMX_BUILD_LNX], [test "x$DMX_BUILD_LNX" = xyes])
 AM_CONDITIONAL([DMX_BUILD_USB], [test "x$DMX_BUILD_USB" = xyes])
 
@@ -1995,9 +1992,6 @@ XEPHYR_LIBS=
 XEPHYR_INCS=
 
 AM_CONDITIONAL(KDRIVE, [test x$KDRIVE = xyes])
-AM_CONDITIONAL(KDRIVE_KBD, test "x$KDRIVE_KBD" = xyes)
-AM_CONDITIONAL(KDRIVE_EVDEV, test "x$KDRIVE_EVDEV" = xyes)
-AM_CONDITIONAL(KDRIVE_MOUSE, test "x$KDRIVE_MOUSE" = xyes)
 
 if test "$KDRIVE" = yes; then
     AC_DEFINE(KDRIVESERVER,1,[Build Kdrive X server])
@@ -2072,6 +2066,26 @@ if test "$KDRIVE" = yes; then
 	*linux*)
 	    KDRIVE_OS_LIB='$(top_builddir)/hw/kdrive/linux/liblinux.la'
             KDRIVELINUX=yes
+	    if test "x$KDRIVE_EVDEV" = xauto; then
+		KDRIVE_EVDEV=yes
+	    fi
+	    if test "x$KDRIVE_KBD" = xauto; then
+		KDRIVE_KBD=yes
+	    fi
+	    if test "x$KDRIVE_MOUSE" = xauto; then
+		KDRIVE_MOUSE=yes
+	    fi
+	    ;;
+	*)
+	    if test "x$KDRIVE_EVDEV" = xauto; then
+		KDRIVE_EVDEV=no
+	    fi
+	    if test "x$KDRIVE_KBD" = xauto; then
+		KDRIVE_KBD=no
+	    fi
+	    if test "x$KDRIVE_MOUSE" = xauto; then
+		KDRIVE_MOUSE=no
+	    fi
 	    ;;
     esac
     KDRIVE_STUB_LIB='$(top_builddir)/hw/kdrive/src/libkdrivestubs.la'
@@ -2090,6 +2104,9 @@ AC_SUBST([KDRIVE_PURE_LIBS])
 AC_SUBST([KDRIVE_LOCAL_LIBS])
 AC_SUBST([KDRIVE_LIBS])
 AM_CONDITIONAL(KDRIVELINUX, [test "x$KDRIVELINUX" = xyes])
+AM_CONDITIONAL(KDRIVE_EVDEV, [test "x$KDRIVE_EVDEV" = xyes])
+AM_CONDITIONAL(KDRIVE_KBD,   [test "x$KDRIVE_KBD" = xyes])
+AM_CONDITIONAL(KDRIVE_MOUSE, [test "x$KDRIVE_MOUSE" = xyes])
 AM_CONDITIONAL(TSLIB, [test "x$HAVE_TSLIB" = xyes])
 AM_CONDITIONAL(KDRIVEFBDEV, [test "x$XFBDEV" = xyes])
 AM_CONDITIONAL(XEPHYR, [test "x$KDRIVE" = xyes && test "x$XEPHYR" = xyes])
@@ -2112,9 +2129,9 @@ AC_TRY_COMPILE([
 
 AC_DEFINE_DIR(PROJECTROOT, prefix, [Overall prefix])
 
-BUILD_DATE="$(date +'%Y%m%d')"
+BUILD_DATE="`date +'%Y%m%d'`"
 AC_SUBST([BUILD_DATE])
-BUILD_TIME="$(date +'1%H%M%S')"
+BUILD_TIME="`date +'1%H%M%S'`"
 AC_SUBST([BUILD_TIME])
 
 DIX_CFLAGS="-DHAVE_DIX_CONFIG_H $XSERVER_CFLAGS"

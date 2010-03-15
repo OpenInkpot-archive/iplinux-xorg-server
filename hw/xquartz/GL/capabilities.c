@@ -31,6 +31,10 @@
 
 #include "capabilities.h"
 
+#define Cursor X_Cursor
+#include "os.h"
+#undef Cursor
+
 static void handleBufferModes(struct glCapabilitiesConfig *c, GLint bufferModes) {
     if(bufferModes & kCGLStereoscopicBit) {
 	c->stereo = true;
@@ -522,7 +526,7 @@ bool getGlCapabilities(struct glCapabilities *cap) {
 	    conf = malloc(sizeof(*conf));
 	    if(NULL == conf) {
             perror("malloc");
-            abort();
+            OsAbort();
 	    }
 
 	    /* Copy the struct. */

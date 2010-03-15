@@ -48,7 +48,98 @@
 #ifndef NO_SYS_HEADERS
 #include <string.h>
 #endif                                                                                           
-#include "compiler.h" /* for unaligned access functions */
+
+# ifndef NO_INLINE
+#  ifdef __GNUC__
+
+/* Define some packed structures to use with unaligned accesses */
+
+struct __una_u64 { u64 x __attribute__((packed)); };
+struct __una_u32 { u32 x __attribute__((packed)); };
+struct __una_u16 { u16 x __attribute__((packed)); };
+
+/* Elemental unaligned loads */
+
+static __inline__ u64 ldq_u(u64 *p)
+{
+	const struct __una_u64 *ptr = (const struct __una_u64 *) p;
+	return ptr->x;
+}
+
+static __inline__ u32 ldl_u(u32 *p)
+{
+	const struct __una_u32 *ptr = (const struct __una_u32 *) p;
+	return ptr->x;
+}
+
+static __inline__ u16 ldw_u(u16 *p)
+{
+	const struct __una_u16 *ptr = (const struct __una_u16 *) p;
+	return ptr->x;
+}
+
+/* Elemental unaligned stores */
+
+static __inline__ void stq_u(u64 val, u64 *p)
+{
+	struct __una_u64 *ptr = (struct __una_u64 *) p;
+	ptr->x = val;
+}
+
+static __inline__ void stl_u(u32 val, u32 *p)
+{
+	struct __una_u32 *ptr = (struct __una_u32 *) p;
+	ptr->x = val;
+}
+
+static __inline__ void stw_u(u16 val, u16 *p)
+{
+	struct __una_u16 *ptr = (struct __una_u16 *) p;
+	ptr->x = val;
+}
+#  else /* !__GNUC__ */
+
+static __inline__ u64 ldq_u(u64 *p)
+{
+	u64 ret;
+	memmove(&ret, p, sizeof(*p));
+	return ret;
+}
+
+static __inline__ u32 ldl_u(u32 *p)
+{
+	u32 ret;
+	memmove(&ret, p, sizeof(*p));
+	return ret;
+}
+
+static __inline__ u16 ldw_u(u16 *p)
+{
+	u16 ret;
+	memmove(&ret, p, sizeof(*p));
+	return ret;
+}
+
+static __inline__ void stq_u(u64 val, u64 *p)
+{
+	u64 tmp = val;
+	memmove(p, &tmp, sizeof(*p));
+}
+
+static __inline__ void stl_u(u32 val, u32 *p)
+{
+	u32 tmp = val;
+	memmove(p, &tmp, sizeof(*p));
+}
+
+static __inline__ void stw_u(u16 val, u16 *p)
+{
+	u16 tmp = val;
+	memmove(p, &tmp, sizeof(*p));
+}
+
+#  endif /* __GNUC__ */
+# endif /* NO_INLINE */
 /*------------------------- Global Variables ------------------------------*/
 
 X86EMU_sysEnv		_X86EMU_env;		/* Global emulator machine state */

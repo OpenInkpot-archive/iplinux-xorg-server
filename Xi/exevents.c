@@ -444,6 +444,26 @@ DeepCopyKeyboardClasses(DeviceIntPtr from, DeviceIntPtr to)
         to->key      = NULL;
     }
 
+    /* If a SrvLedInfoPtr's flags are XkbSLI_IsDefault, the names and maps
+     * pointer point into the xkbInfo->desc struct.  XkbCopySrvLedInfo
+     * didn't update the pointers so we need to do it manually here.
+     */
+    if (to->kbdfeed)
+    {
+        KbdFeedbackPtr k;
+
+        for (k = to->kbdfeed; k; k = k->next)
+        {
+            if (!k->xkb_sli)
+                continue;
+            if (k->xkb_sli->flags & XkbSLI_IsDefault)
+            {
+                k->xkb_sli->names = to->key->xkbInfo->desc->names->indicators;
+                k->xkb_sli->maps = to->key->xkbInfo->desc->indicators->maps;
+            }
+        }
+    }
+
     /* We can't just copy over the focus class. When an app sets the focus,
      * it'll do so on the master device. Copying the SDs focus means losing
      * the focus.
@@ -1031,16 +1051,19 @@ ProcessOtherEvent(InternalEvent *ev, DeviceIntPtr device)
             break;
     }
 
-#if 0
-    /* FIXME: I'm broken. Please fix me. Thanks */
-    if (DeviceEventCallback) {
+    if (DeviceEventCallback && !syncEvents.playingEvents) {
 	DeviceEventInfoRec eventinfo;
+	SpritePtr pSprite = device->spriteInfo->sprite;
 
-	eventinfo.events = (xEventPtr) xE;
-	eventinfo.count = count;
+	/* see comment in EnqueueEvents regarding the next three lines */
+	if (ev->any.type == ET_Motion)
+	    ev->device_event.root = WindowTable[pSprite->hotPhys.pScreen->myNum]->drawable.id;
+
+	eventinfo.device = device;
+	eventinfo.event = ev;
 	CallCallbacks(&DeviceEventCallback, (pointer) & eventinfo);
     }
-#endif
+
     grab = device->deviceGrab.grab;
 
     switch(event->type)

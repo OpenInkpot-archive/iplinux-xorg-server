@@ -32,6 +32,10 @@
 #include <sys/ioctl.h>
 #include <X11/keysym.h>
 
+#ifdef HAVE_APM
+#include "apm.h"
+#endif
+
 #ifdef KDRIVE_MOUSE
 extern KdPointerDriver	LinuxMouseDriver;
 extern KdPointerDriver	Ps2MouseDriver;
@@ -138,11 +142,44 @@ LinuxInit (void)
     return 1;
 }
 
-#ifdef FNONBLOCK
-#define NOBLOCK FNONBLOCK
-#else
-#define NOBLOCK FNDELAY
-#endif
+static void
+LinuxSetSwitchMode (int mode)
+{
+    struct sigaction	act;
+    struct vt_mode	VT;
+
+    if (ioctl(LinuxConsoleFd, VT_GETMODE, &VT) < 0)
+    {
+	FatalError ("LinuxInit: VT_GETMODE failed\n");
+    }
+
+    if (mode == VT_PROCESS)
+    {
+	act.sa_handler = LinuxVTRequest;
+	sigemptyset (&act.sa_mask);
+	act.sa_flags = 0;
+	sigaction (SIGUSR1, &act, 0);
+
+	VT.mode = mode;
+	VT.relsig = SIGUSR1;
+	VT.acqsig = SIGUSR1;
+    }
+    else
+    {
+	act.sa_handler = SIG_IGN;
+	sigemptyset (&act.sa_mask);
+	act.sa_flags = 0;
+	sigaction (SIGUSR1, &act, 0);
+
+	VT.mode = mode;
+	VT.relsig = 0;
+	VT.acqsig = 0;
+    }
+    if (ioctl(LinuxConsoleFd, VT_SETMODE, &VT) < 0)
+    {
+	FatalError("LinuxInit: VT_SETMODE failed\n");
+    }
+}
 
 static void
 LinuxEnable (void)
@@ -154,6 +191,10 @@ LinuxEnable (void)
 	kdSwitchPending = FALSE;
 	ioctl (LinuxConsoleFd, VT_RELDISP, VT_ACKACQ);
     }
+
+#ifdef HAVE_APM
+    LinuxApmOpen();
+#endif
 
     /*
      * now get the VT
@@ -183,6 +224,9 @@ LinuxDisable (void)
 	ioctl (LinuxConsoleFd, VT_RELDISP, 1);
     }
     enabled = FALSE;
+#ifdef HAVE_APM
+    LinuxApmClose();
+#endif
 }
 
 static void

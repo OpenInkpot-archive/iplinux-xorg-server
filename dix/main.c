@@ -318,7 +318,6 @@ int main(int argc, char *argv[], char *envp[])
 	    InitRootWindow(WindowTable[i]);
 
         InitCoreDevices();
-        config_init();
 	InitInput(argc, argv);
 	InitAndStartDevices();
 
@@ -373,7 +372,7 @@ int main(int argc, char *argv[], char *envp[])
 	FreeAllResources();
 #endif
 
-        config_fini();
+        CloseInput();
 
         memset(WindowTable, 0, sizeof(WindowTable));
 	CloseDownDevices();

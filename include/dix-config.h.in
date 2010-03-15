@@ -414,9 +414,6 @@
 /* Use only built-in fonts */
 #undef BUILTIN_FONTS
 
-/* Use an empty root cursor */
-#undef NULL_ROOT_CURSOR
-
 /* Have a monotonic clock from clock_gettime() */
 #undef MONOTONIC_CLOCK
 
@@ -448,7 +445,5 @@
 #ifdef __APPLE__
 #include "dix-config-apple-verbatim.h"
 #endif
-
-#undef HAVE_AVC_NETLINK_ACQUIRE_FD
 
 #endif /* _DIX_CONFIG_H_ */

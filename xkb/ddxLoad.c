@@ -188,16 +188,19 @@ XkbDDXGetPrecompiledKeymap(XkbComponentNamesPtr names,
                            char *keymapName,
                            int keymapNameLen)
 {
+    if (!XkbBaseDirectory)
+        return FALSE;
+
     int ret = snprintf(keymapName, keymapNameLen,
                        "%s/precompiled/%s-%s-%s-%s-%s.xkm",
-                       XkbBaseDirectory ? XkbBaseDirectory : "/nonexistent",
+                       XkbBaseDirectory,
                        names->keycodes ? names->keycodes : "def",
                        names->types ? names->types : "def",
                        names->compat ? names->compat : "def",
                        names->symbols ? names->symbols : "def",
                        names->geometry ? names->geometry : "def");
     if (ret == keymapNameLen)
-        return False;
+        return FALSE;
 
     return access(keymapName, R_OK) == 0;
 }
@@ -294,7 +297,7 @@ XkbDDXCompileKeymapByNames(	XkbDescPtr		xkb,
 	    }
             if (buf != NULL)
                 xfree (buf);
-	    return True;
+	    return TRUE;
 	}
 	else
 	    LogMessage(X_ERROR, "Error compiling keymap (%s)\n", keymap);
@@ -314,7 +317,7 @@ XkbDDXCompileKeymapByNames(	XkbDescPtr		xkb,
 	nameRtrn[0]= '\0';
     if (buf != NULL)
         xfree (buf);
-    return False;
+    return FALSE;
 }
 
 static FILE *
@@ -380,11 +383,11 @@ unsigned	missing;
     }
 
     if (XkbDDXGetPrecompiledKeymap(names, nameRtrn, nameRtrnLen)) {
-        unlinkFile = False;
+        unlinkFile = FALSE;
         strncpy(fileName, nameRtrn, PATH_MAX);
         file = fopen(nameRtrn, "rb");
     } else {
-        unlinkFile = True;
+        unlinkFile = TRUE;
 
         if (!XkbDDXCompileKeymapByNames(xkb, names, want, need,
                                         nameRtrn, nameRtrnLen)) {
@@ -426,38 +429,38 @@ Bool		complete;
 XkbRF_RulesPtr	rules;
 
     if (!rules_name)
-	return False;
+	return FALSE;
 
     if (strlen(XkbBaseDirectory) + strlen(rules_name) + 8 > PATH_MAX) {
         LogMessage(X_ERROR, "XKB: Rules name is too long\n");
-        return False;
+        return FALSE;
     }
     sprintf(buf,"%s/rules/%s", XkbBaseDirectory, rules_name);
 
     file = fopen(buf, "r");
     if (!file) {
         LogMessage(X_ERROR, "XKB: Couldn't open rules file %s\n", buf);
-	return False;
+	return FALSE;
     }
 
     rules = XkbRF_Create();
     if (!rules) {
         LogMessage(X_ERROR, "XKB: Couldn't create rules struct\n");
 	fclose(file);
-	return False;
+	return FALSE;
     }
 
     if (!XkbRF_LoadRules(file, rules)) {
         LogMessage(X_ERROR, "XKB: Couldn't parse rules file %s\n", rules_name);
 	fclose(file);
-	XkbRF_Free(rules,True);
-	return False;
+	XkbRF_Free(rules,TRUE);
+	return FALSE;
     }
 
     memset(names, 0, sizeof(*names));
     complete = XkbRF_GetComponents(rules,defs,names);
     fclose(file);
-    XkbRF_Free(rules, True);
+    XkbRF_Free(rules, TRUE);
 
     if (!complete)
         LogMessage(X_ERROR, "XKB: Rules returned no components\n");
