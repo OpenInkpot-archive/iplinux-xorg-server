@@ -1,3 +1,12 @@
+xorg-server (2:1.8.99.0.git1-1) zelazny; urgency=low
+
+  * New upstream snapshot:
+    - bump x11proto-core build-dependency,
+    - explicitly enable evdev driver in Kdrive.
+  * Fix libXext build dependency in mi.
+
+ -- Mikhail Gusarov <dottedmag@dottedmag.net>  Fri, 11 Jun 2010 20:18:54 +0700
+
 xorg-server (2:1.7.99.2.git2-1) zelazny; urgency=low
 
   * New upstream snapshot.
