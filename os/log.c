@@ -99,8 +99,7 @@ OR PERFORMANCE OF THIS SOFTWARE.
 #endif
 
 #ifdef XF86BIGFONT
-#define _XF86BIGFONT_SERVER_
-#include <X11/extensions/xf86bigfont.h>
+#include "xf86bigfontsrv.h"
 #endif
 
 #ifdef DDXOSVERRORF
@@ -117,6 +116,19 @@ static int logFileVerbosity = DEFAULT_LOG_FILE_VERBOSITY;
 static char *saveBuffer = NULL;
 static int bufferSize = 0, bufferUnused = 0, bufferPos = 0;
 static Bool needBuffer = TRUE;
+
+#ifdef __APPLE__
+#include <AvailabilityMacros.h>
+
+static char __crashreporter_info_buff__[4096] = {0};
+static const char *__crashreporter_info__ = &__crashreporter_info_buff__[0];
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
+// This is actually a toolchain requirement, but I'm not sure the correct check,        
+// but it should be fine to just only include it for Leopard and later.  This line
+// just tells the linker to never strip this symbol (such as for space optimization)
+asm (".desc ___crashreporter_info__, 0x10");
+#endif
+#endif
 
 /* Prefix strings for log messages. */
 #ifndef X_UNKNOWN_STRING
@@ -165,7 +177,7 @@ LogInit(const char *fname, const char *backup)
     char *logFileName = NULL;
 
     if (fname && *fname) {
-	/* xalloc() can't be used yet. */
+	/* malloc() can't be used yet. */
 	logFileName = malloc(strlen(fname) + strlen(display) + 1);
 	if (!logFileName)
 	    FatalError("Cannot allocate space for the log file name\n");
@@ -212,7 +224,7 @@ LogInit(const char *fname, const char *backup)
      * needed.
      */
     if (saveBuffer && bufferSize > 0) {
-	free(saveBuffer);	/* Must be free(), not xfree() */
+	free(saveBuffer);	/* Must be free(), not free() */
 	saveBuffer = NULL;
 	bufferSize = 0;
     }
@@ -292,7 +304,7 @@ LogVWrite(int verb, const char *f, va_list args)
 	} else if (needBuffer) {
 	    /*
 	     * Note, this code is used before OsInit() has been called, so
-	     * xalloc() and friends can't be used.
+	     * malloc() and friends can't be used.
 	     */
 	    if (len > bufferUnused) {
 		bufferSize += 1024;
@@ -397,9 +409,8 @@ LogMessage(MessageType type, const char *format, ...)
     va_end(ap);
 }
 
-#ifdef __GNUC__
-void AbortServer(void) __attribute__((noreturn));
-#endif
+void
+AbortServer(void) _X_NORETURN;
 
 void
 AbortServer(void)
@@ -528,6 +539,9 @@ FatalError(const char *f, ...)
 	ErrorF("\nFatal server error:\n");
 
     va_start(args, f);
+#ifdef __APPLE__
+    (void)vsnprintf(__crashreporter_info_buff__, sizeof(__crashreporter_info_buff__), f, args);
+#endif
     VErrorF(f, args);
     va_end(args);
     ErrorF("\n");

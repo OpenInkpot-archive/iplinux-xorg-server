@@ -46,6 +46,9 @@ typedef struct {
     void *driverPrivate;
 } DRI2BufferRec, *DRI2BufferPtr;
 
+extern CARD8 dri2_major; /* version of DRI2 supported by DDX */
+extern CARD8 dri2_minor;
+
 typedef DRI2BufferRec DRI2Buffer2Rec, *DRI2Buffer2Ptr;
 typedef void (*DRI2SwapEventPtr)(ClientPtr client, void *data, int type,
 				 CARD64 ust, CARD64 msc, CARD64 sbc);
@@ -63,6 +66,8 @@ typedef void		(*DRI2CopyRegionProcPtr)(DrawablePtr pDraw,
 						 DRI2BufferPtr pSrcBuffer);
 typedef void		(*DRI2WaitProcPtr)(WindowPtr pWin,
 					   unsigned int sequence);
+typedef int		(*DRI2AuthMagicProcPtr)(int fd, uint32_t magic);
+
 /**
  * Schedule a buffer swap
  *
@@ -149,10 +154,14 @@ typedef int		(*DRI2ScheduleWaitMSCProcPtr)(ClientPtr client,
 						      CARD64 target_msc,
 						      CARD64 divisor,
 						      CARD64 remainder);
+
+typedef void		(*DRI2InvalidateProcPtr)(DrawablePtr pDraw,
+						 void *data);
+
 /**
  * Version of the DRI2InfoRec structure defined in this header
  */
-#define DRI2INFOREC_VERSION 4
+#define DRI2INFOREC_VERSION 5
 
 typedef struct {
     unsigned int version;	/**< Version of this struct */
@@ -176,6 +185,10 @@ typedef struct {
     /* array of driver names, indexed by DRI2Driver* driver types */
     /* a name of NULL means that driver is not supported */
     const char * const *driverNames;
+
+    /* added in version 5 */
+
+    DRI2AuthMagicProcPtr	AuthMagic;
 }  DRI2InfoRec, *DRI2InfoPtr;
 
 extern _X_EXPORT int DRI2EventBase;
@@ -185,15 +198,21 @@ extern _X_EXPORT Bool DRI2ScreenInit(ScreenPtr	pScreen,
 
 extern _X_EXPORT void DRI2CloseScreen(ScreenPtr pScreen);
 
+extern _X_EXPORT Bool DRI2HasSwapControl(ScreenPtr pScreen);
+
 extern _X_EXPORT Bool DRI2Connect(ScreenPtr pScreen,
 		 unsigned int driverType,
 		 int *fd,
 		 const char **driverName,
 		 const char **deviceName);
 
-extern _X_EXPORT Bool DRI2Authenticate(ScreenPtr pScreen, drm_magic_t magic);
+extern _X_EXPORT Bool DRI2Authenticate(ScreenPtr pScreen, uint32_t magic);
 
-extern _X_EXPORT int DRI2CreateDrawable(DrawablePtr pDraw);
+extern _X_EXPORT int DRI2CreateDrawable(ClientPtr client,
+					DrawablePtr pDraw,
+					XID id,
+					DRI2InvalidateProcPtr invalidate,
+					void *priv);
 
 extern _X_EXPORT void DRI2DestroyDrawable(DrawablePtr pDraw);
 
@@ -246,14 +265,14 @@ extern _X_EXPORT int DRI2WaitMSC(ClientPtr client, DrawablePtr pDrawable,
 extern _X_EXPORT int ProcDRI2WaitMSCReply(ClientPtr client, CARD64 ust,
 					  CARD64 msc, CARD64 sbc);
 extern _X_EXPORT int DRI2WaitSBC(ClientPtr client, DrawablePtr pDraw,
-				 CARD64 target_sbc, CARD64 *ust, CARD64 *msc,
-				 CARD64 *sbc);
+				 CARD64 target_sbc);
 extern _X_EXPORT Bool DRI2ThrottleClient(ClientPtr client, DrawablePtr pDraw);
 
 extern _X_EXPORT Bool DRI2CanFlip(DrawablePtr pDraw);
 
 extern _X_EXPORT Bool DRI2CanExchange(DrawablePtr pDraw);
 
+/* Note: use *only* for MSC related waits */
 extern _X_EXPORT void DRI2BlockClient(ClientPtr client, DrawablePtr pDraw);
 
 extern _X_EXPORT void DRI2SwapComplete(ClientPtr client, DrawablePtr pDraw,

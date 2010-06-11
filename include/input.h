@@ -215,6 +215,8 @@ typedef struct _InputAttributes {
     char                *product;
     char                *vendor;
     char                *device;
+    char                *pnp_id;
+    char                *usb_id;
     char                **tags; /* null-terminated */
     uint32_t            flags;
 } InputAttributes;
@@ -432,7 +434,7 @@ extern void CreateClassesChangedEvent(EventListPtr event,
                                       DeviceIntPtr master,
                                       DeviceIntPtr slave,
                                       int type);
-extern int GetPointerEvents(
+extern _X_EXPORT int GetPointerEvents(
     EventListPtr events,
     DeviceIntPtr pDev,
     int type,
@@ -442,7 +444,7 @@ extern int GetPointerEvents(
     int num_valuators,
     int *valuators);
 
-extern int GetKeyboardEvents(
+extern _X_EXPORT int GetKeyboardEvents(
     EventListPtr events,
     DeviceIntPtr pDev,
     int type,
@@ -493,7 +495,7 @@ extern int AttachDevice(ClientPtr client,
 extern _X_EXPORT DeviceIntPtr GetPairedDevice(DeviceIntPtr kbd);
 extern DeviceIntPtr GetMaster(DeviceIntPtr dev, int type);
 
-extern int AllocDevicePair(ClientPtr client,
+extern _X_EXPORT int AllocDevicePair(ClientPtr client,
                              char* name,
                              DeviceIntPtr* ptr,
                              DeviceIntPtr* keybd,
@@ -505,7 +507,7 @@ extern void DeepCopyDeviceClasses(DeviceIntPtr from,
                                   DeviceChangedEvent *dce);
 
 /* Helper functions. */
-extern int generate_modkeymap(ClientPtr client, DeviceIntPtr dev,
+extern _X_EXPORT int generate_modkeymap(ClientPtr client, DeviceIntPtr dev,
                               KeyCode **modkeymap, int *max_keys_per_mod);
 extern int change_modmap(ClientPtr client, DeviceIntPtr dev, KeyCode *map,
                          int max_keys_per_mod);
@@ -518,6 +520,8 @@ extern int AllocXTestDevice(ClientPtr client,
 extern BOOL IsXTestDevice(DeviceIntPtr dev, DeviceIntPtr master);
 extern DeviceIntPtr GetXTestDevice(DeviceIntPtr master);
 extern void SendDevicePresenceEvent(int deviceid, int type);
+extern _X_EXPORT InputAttributes *DuplicateInputAttributes(InputAttributes *attrs);
+extern _X_EXPORT void FreeInputAttributes(InputAttributes *attrs);
 
 /* misc event helpers */
 extern Mask GetEventFilter(DeviceIntPtr dev, xEvent *event);

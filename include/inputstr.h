@@ -49,6 +49,7 @@ SOFTWARE.
 #ifndef INPUTSTRUCT_H
 #define INPUTSTRUCT_H
 
+#include <pixman.h>
 #include "input.h"
 #include "window.h"
 #include "dixstruct.h"
@@ -386,8 +387,16 @@ typedef struct {
     int spriteTraceSize;
     int spriteTraceGood;
 
-    ScreenPtr pEnqueueScreen; /* screen events are being delivered to */
-    ScreenPtr pDequeueScreen; /* screen events are being dispatched to */
+    /* Due to delays between event generation and event processing, it is
+     * possible that the pointer has crossed screen boundaries between the
+     * time in which it begins generating events and the time when
+     * those events are processed.
+     *
+     * pEnqueueScreen: screen the pointer was on when the event was generated
+     * pDequeueScreen: screen the pointer was on when the event is processed
+     */
+    ScreenPtr pEnqueueScreen;
+    ScreenPtr pDequeueScreen;
 
 } SpriteRec, *SpritePtr;
 
@@ -469,6 +478,14 @@ typedef struct _SpriteInfoRec {
     DeviceIntPtr        paired;      /* The paired device. Keyboard if
                                         spriteOwner is TRUE, otherwise the
                                         pointer that owns the sprite. */ 
+
+    /* keep states for animated cursor */
+    struct {
+        CursorPtr       pCursor;
+        ScreenPtr       pScreen;
+        int             elt;
+        CARD32          time;
+    } anim;
 } SpriteInfoRec, *SpriteInfoPtr;
 
 /* device types */
@@ -506,8 +523,9 @@ typedef struct _DeviceIntRec {
     LedFeedbackPtr	leds;
     struct _XkbInterest *xkb_interest;
     char                *config_info; /* used by the hotplug layer */
+    ClassesPtr		unused_classes; /* for master devices */
+    int			saved_master_id;	/* for slaves while grabbed */
     PrivateRec		*devPrivates;
-    int			nPrivates;
     DeviceUnwrapProc    unwrapProc;
     SpriteInfoPtr       spriteInfo;
     union {
@@ -533,6 +551,12 @@ typedef struct _DeviceIntRec {
         XIPropertyPtr   properties;
         XIPropertyHandlerPtr handlers; /* NULL-terminated */
     } properties;
+
+    /* coordinate transformation matrix for absolute input devices */
+    struct pixman_f_transform transform;
+
+    /* XTest related master device id */
+    int xtest_master_id;
 } DeviceIntRec;
 
 typedef struct {

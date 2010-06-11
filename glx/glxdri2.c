@@ -105,14 +105,9 @@ __glXDRIdrawableDestroy(__GLXdrawable *drawable)
     
     (*core->destroyDrawable)(private->driDrawable);
 
-    /* If the X window was destroyed, the dri DestroyWindow hook will
-     * aready have taken care of this, so only call if pDraw isn't NULL. */
-    if (drawable->pDraw != NULL)
-	DRI2DestroyDrawable(drawable->pDraw);
-
     __glXDrawableRelease(drawable);
 
-    xfree(private);
+    free(private);
 }
 
 static void
@@ -127,7 +122,7 @@ __glXDRIdrawableCopySubBuffer(__GLXdrawable *drawable,
     box.y1 = private->height - y - h;
     box.x2 = x + w;
     box.y2 = private->height - y;
-    REGION_INIT(drawable->pDraw->pScreen, &region, &box, 0);
+    RegionInit(&region, &box, 0);
 
     DRI2CopyRegion(drawable->pDraw, &region,
 		   DRI2BufferFrontLeft, DRI2BufferBackLeft);
@@ -144,7 +139,7 @@ __glXDRIdrawableWaitX(__GLXdrawable *drawable)
     box.y1 = 0;
     box.x2 = private->width;
     box.y2 = private->height;
-    REGION_INIT(drawable->pDraw->pScreen, &region, &box, 0);
+    RegionInit(&region, &box, 0);
 
     DRI2CopyRegion(drawable->pDraw, &region,
 		   DRI2BufferFakeFrontLeft, DRI2BufferFrontLeft);
@@ -161,7 +156,7 @@ __glXDRIdrawableWaitGL(__GLXdrawable *drawable)
     box.y1 = 0;
     box.x2 = private->width;
     box.y2 = private->height;
-    REGION_INIT(drawable->pDraw->pScreen, &region, &box, 0);
+    RegionInit(&region, &box, 0);
 
     DRI2CopyRegion(drawable->pDraw, &region,
 		   DRI2BufferFrontLeft, DRI2BufferFakeFrontLeft);
@@ -192,7 +187,6 @@ __glXdriSwapEvent(ClientPtr client, void *data, int type, CARD64 ust,
 	/* unknown swap completion type */
 	break;
     }
-    wire.sequenceNumber = client->sequence;
     wire.drawable = drawable->drawId;
     wire.ust_hi = ust >> 32;
     wire.ust_lo = ust & 0xffffffff;
@@ -253,7 +247,7 @@ __glXDRIcontextDestroy(__GLXcontext *baseContext)
 
     (*screen->core->destroyContext)(context->driContext);
     __glXContextDestroy(&context->base);
-    xfree(context);
+    free(context);
 }
 
 static int
@@ -391,7 +385,7 @@ __glXDRIscreenDestroy(__GLXscreen *baseScreen)
 
     __glXScreenDestroy(baseScreen);
 
-    xfree(screen);
+    free(screen);
 }
 
 static __GLXcontext *
@@ -410,7 +404,7 @@ __glXDRIscreenCreateContext(__GLXscreen *baseScreen,
     else
 	driShare = NULL;
 
-    context = xcalloc(1, sizeof *context);
+    context = calloc(1, sizeof *context);
     if (context == NULL)
 	return NULL;
 
@@ -427,32 +421,45 @@ __glXDRIscreenCreateContext(__GLXscreen *baseScreen,
 					  config->driConfig,
 					  driShare, context);
     if (context->driContext == NULL) {
-	    xfree(context);
+	    free(context);
         return NULL;
     }
 
     return &context->base;
 }
 
+static void
+__glXDRIinvalidateBuffers(DrawablePtr pDraw, void *priv)
+{
+#if __DRI2_FLUSH_VERSION >= 3
+    __GLXDRIdrawable *private = priv;
+    __GLXDRIscreen *screen = private->screen;
+
+    (*screen->flush->invalidate)(private->driDrawable);
+#endif
+}
+
 static __GLXdrawable *
-__glXDRIscreenCreateDrawable(__GLXscreen *screen,
+__glXDRIscreenCreateDrawable(ClientPtr client,
+			     __GLXscreen *screen,
 			     DrawablePtr pDraw,
-			     int type,
 			     XID drawId,
+			     int type,
+			     XID glxDrawId,
 			     __GLXconfig *glxConfig)
 {
     __GLXDRIscreen *driScreen = (__GLXDRIscreen *) screen;
     __GLXDRIconfig *config = (__GLXDRIconfig *) glxConfig;
     __GLXDRIdrawable *private;
 
-    private = xcalloc(1, sizeof *private);
+    private = calloc(1, sizeof *private);
     if (private == NULL)
 	return NULL;
 
     private->screen = driScreen;
     if (!__glXDrawableInit(&private->base, screen,
-			   pDraw, type, drawId, glxConfig)) {
-        xfree(private);
+			   pDraw, type, glxDrawId, glxConfig)) {
+        free(private);
 	return NULL;
     }
 
@@ -462,8 +469,9 @@ __glXDRIscreenCreateDrawable(__GLXscreen *screen,
     private->base.waitGL	= __glXDRIdrawableWaitGL;
     private->base.waitX		= __glXDRIdrawableWaitX;
 
-    if (DRI2CreateDrawable(pDraw)) {
-	    xfree(private);
+    if (DRI2CreateDrawable(client, pDraw, drawId,
+			   __glXDRIinvalidateBuffers, private)) {
+	    free(private);
 	    return NULL;
     }
 
@@ -576,9 +584,18 @@ static const __DRIdri2LoaderExtension loaderExtension = {
     dri2GetBuffersWithFormat,
 };
 
+#ifdef __DRI_USE_INVALIDATE
+static const __DRIuseInvalidateExtension dri2UseInvalidate = {
+   { __DRI_USE_INVALIDATE, __DRI_USE_INVALIDATE_VERSION }
+};
+#endif
+
 static const __DRIextension *loader_extensions[] = {
     &systemTimeExtension.base,
     &loaderExtension.base,
+#ifdef __DRI_USE_INVALIDATE
+    &dri2UseInvalidate,
+#endif
     NULL
 };
 
@@ -616,6 +633,7 @@ glxDRILeaveVT (int index, int flags)
 static void
 initializeExtensions(__GLXDRIscreen *screen)
 {
+    ScreenPtr pScreen = screen->base.pScreen;
     const __DRIextension **extensions;
     int i;
 
@@ -625,9 +643,16 @@ initializeExtensions(__GLXDRIscreen *screen)
 			 "GLX_MESA_copy_sub_buffer");
     LogMessage(X_INFO, "AIGLX: enabled GLX_MESA_copy_sub_buffer\n");
 
-    /* FIXME: only if DDX supports it */
     __glXEnableExtension(screen->glx_enable_bits, "GLX_INTEL_swap_event");
     LogMessage(X_INFO, "AIGLX: enabled GLX_INTEL_swap_event\n");
+
+    if (DRI2HasSwapControl(pScreen)) {
+	__glXEnableExtension(screen->glx_enable_bits,
+			     "GLX_SGI_swap_control");
+	__glXEnableExtension(screen->glx_enable_bits,
+			     "GLX_MESA_swap_control");
+	LogMessage(X_INFO, "AIGLX: enabled GLX_SGI_swap_control and GLX_MESA_swap_control\n");
+    }
 
     for (i = 0; extensions[i]; i++) {
 #ifdef __DRI_READ_DRAWABLE
@@ -636,19 +661,6 @@ initializeExtensions(__GLXDRIscreen *screen)
 				 "GLX_SGI_make_current_read");
 
 	    LogMessage(X_INFO, "AIGLX: enabled GLX_SGI_make_current_read\n");
-	}
-#endif
-
-#ifdef __DRI_SWAP_CONTROL
-	if (strcmp(extensions[i]->name, __DRI_SWAP_CONTROL) == 0) {
-	    screen->swapControl =
-		(const __DRIswapControlExtension *) extensions[i];
-	    __glXEnableExtension(screen->glx_enable_bits,
-				 "GLX_SGI_swap_control");
-	    __glXEnableExtension(screen->glx_enable_bits,
-				 "GLX_MESA_swap_control");
-	    
-	    LogMessage(X_INFO, "AIGLX: enabled GLX_SGI_swap_control and GLX_MESA_swap_control\n");
 	}
 #endif
 
@@ -663,7 +675,7 @@ initializeExtensions(__GLXDRIscreen *screen)
 
 #ifdef __DRI2_FLUSH
 	if (strcmp(extensions[i]->name, __DRI2_FLUSH) == 0 &&
-	    extensions[i]->version >= __DRI2_FLUSH_VERSION) {
+	    extensions[i]->version >= 3) {
 		screen->flush = (__DRI2flushExtension *) extensions[i];
 	}
 #endif
@@ -684,7 +696,7 @@ __glXDRIscreenProbe(ScreenPtr pScreen)
     const __DRIconfig **driConfigs;
     int i;
 
-    screen = xcalloc(1, sizeof *screen);
+    screen = calloc(1, sizeof *screen);
     if (screen == NULL)
 	return NULL;
 
@@ -723,11 +735,11 @@ __glXDRIscreenProbe(ScreenPtr pScreen)
     
     for (i = 0; extensions[i]; i++) {
         if (strcmp(extensions[i]->name, __DRI_CORE) == 0 &&
-	    extensions[i]->version >= __DRI_CORE_VERSION) {
+	    extensions[i]->version >= 1) {
 		screen->core = (const __DRIcoreExtension *) extensions[i];
 	}
         if (strcmp(extensions[i]->name, __DRI_DRI2) == 0 &&
-	    extensions[i]->version >= __DRI_DRI2_VERSION) {
+	    extensions[i]->version >= 1) {
 		screen->dri2 = (const __DRIdri2Extension *) extensions[i];
 	}
     }
@@ -753,7 +765,10 @@ __glXDRIscreenProbe(ScreenPtr pScreen)
 
     initializeExtensions(screen);
 
-    screen->base.fbconfigs = glxConvertConfigs(screen->core, driConfigs);
+    screen->base.fbconfigs = glxConvertConfigs(screen->core, driConfigs,
+					       GLX_WINDOW_BIT |
+					       GLX_PIXMAP_BIT |
+					       GLX_PBUFFER_BIT);
 
     __glXScreenInit(&screen->base, pScreen);
 
@@ -764,7 +779,7 @@ __glXDRIscreenProbe(ScreenPtr pScreen)
     buffer_size = __glXGetExtensionString(screen->glx_enable_bits, NULL);
     if (buffer_size > 0) {
 	if (screen->base.GLXextensions != NULL) {
-	    xfree(screen->base.GLXextensions);
+	    free(screen->base.GLXextensions);
 	}
 
 	screen->base.GLXextensions = xnfalloc(buffer_size);
@@ -798,7 +813,7 @@ __glXDRIscreenProbe(ScreenPtr pScreen)
     if (screen->driver)
         dlclose(screen->driver);
 
-    xfree(screen);
+    free(screen);
 
     LogMessage(X_ERROR, "AIGLX: reverting to software rendering\n");
 

@@ -73,10 +73,16 @@ extern int noPanoramiXExtension;
 #define XSERVER_VERSION "?"
 #endif
 
-const int __crashreporter_info__len = 4096;
-const char *__crashreporter_info__base = "X.Org X Server " XSERVER_VERSION " Build Date: " BUILD_DATE;
-char __crashreporter_info__buf[4096];
-char *__crashreporter_info__ = __crashreporter_info__buf;
+static char __crashreporter_info_buff__[4096] = {0};
+static const char *__crashreporter_info__ = &__crashreporter_info_buff__[0];
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
+// This is actually a toolchain requirement, but I'm not sure the correct check,
+// but it should be fine to just only include it for Leopard and later.  This line
+// just tells the linker to never strip this symbol (such as for space optimization)
+asm (".desc ___crashreporter_info__, 0x10");
+#endif
+
+static const char *__crashreporter_info__base = "X.Org X Server " XSERVER_VERSION " Build Date: " BUILD_DATE;
 
 static char *launchd_id_prefix = NULL;
 static char *server_bootstrap_name = NULL;
@@ -548,7 +554,7 @@ int main(int argc, char **argv, char **envp) {
     noPanoramiXExtension = TRUE;
 
     /* Setup the initial crasherporter info */
-    strlcpy(__crashreporter_info__, __crashreporter_info__base, __crashreporter_info__len);
+    strlcpy(__crashreporter_info_buff__, __crashreporter_info__base, sizeof(__crashreporter_info_buff__));
     
     fprintf(stderr, "X11.app: main(): argc=%d\n", argc);
     for(i=0; i < argc; i++) {
@@ -635,7 +641,7 @@ static int execute(const char *command) {
 
     execvp (newargv[0], (char * const *) newargv);
     perror ("X11.app: Couldn't exec.");
-    return(1);
+    return 1;
 }
 
 static char *command_from_prefs(const char *key, const char *default_value) {

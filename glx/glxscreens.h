@@ -134,10 +134,12 @@ struct __GLXscreen {
 				    __GLXconfig *modes,
 				    __GLXcontext *shareContext);
 
-    __GLXdrawable *(*createDrawable)(__GLXscreen *context,
+    __GLXdrawable *(*createDrawable)(ClientPtr client,
+				     __GLXscreen *context,
 				     DrawablePtr pDraw,
-				     int type,
 				     XID drawId,
+				     int type,
+				     XID glxDrawId,
 				     __GLXconfig *modes);
     int            (*swapInterval)  (__GLXdrawable *drawable,
 				     int interval);
@@ -173,7 +175,6 @@ struct __GLXscreen {
     /*@}*/
 
     Bool (*CloseScreen)(int index, ScreenPtr pScreen);
-    Bool (*DestroyWindow)(WindowPtr pWindow);
 };
 
 

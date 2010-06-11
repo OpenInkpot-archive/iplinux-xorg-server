@@ -3,6 +3,7 @@ sdk_HEADERS =		\
 	XIstubs.h	\
 	bstore.h	\
 	bstorestr.h	\
+	callback.h	\
 	closestr.h	\
 	closure.h	\
 	colormap.h	\
@@ -27,6 +28,7 @@ sdk_HEADERS =		\
 	globals.h	\
 	input.h		\
 	inputstr.h	\
+	list.h		\
 	misc.h		\
 	miscstruct.h	\
 	opaque.h	\

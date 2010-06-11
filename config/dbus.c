@@ -27,7 +27,6 @@
 #include <dix-config.h>
 #endif
 
-#define DBUS_API_SUBJECT_TO_CHANGE
 #include <dbus/dbus.h>
 #include <string.h>
 
@@ -81,7 +80,7 @@ add_device(DBusMessage *message, DBusMessage *reply, DBusError *error)
         MALFORMED_MESSAGE();
     }
 
-    options = xcalloc(sizeof(*options), 1);
+    options = calloc(sizeof(*options), 1);
     if (!options) {
         ErrorF("[config/dbus] couldn't allocate option\n");
         return BadAlloc;
@@ -97,7 +96,7 @@ add_device(DBusMessage *message, DBusMessage *reply, DBusError *error)
 
     /* signature should be [ss][ss]... */
     while (dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_ARRAY) {
-        tmpo = xcalloc(sizeof(*tmpo), 1);
+        tmpo = calloc(sizeof(*tmpo), 1);
         if (!tmpo) {
             ErrorF("[config/dbus] couldn't allocate option\n");
             ret = BadAlloc;
@@ -184,11 +183,9 @@ unwind:
     while (options) {
         tmpo = options;
         options = options->next;
-        if (tmpo->key)
-            xfree(tmpo->key);
-        if (tmpo->value)
-            xfree(tmpo->value);
-        xfree(tmpo);
+        free(tmpo->key);
+        free(tmpo->value);
+        free(tmpo);
     }
 
     return ret;

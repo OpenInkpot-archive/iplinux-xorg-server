@@ -37,8 +37,7 @@ RRTransformInit (RRTransformPtr transform)
 void
 RRTransformFini (RRTransformPtr transform)
 {
-    if (transform->params)
-	xfree (transform->params);
+    free(transform->params);
 }
 
 Bool
@@ -75,15 +74,14 @@ RRTransformSetFilter (RRTransformPtr	dst,
 
     if (nparams)
     {
-	new_params = xalloc (nparams * sizeof (xFixed));
+	new_params = malloc(nparams * sizeof (xFixed));
 	if (!new_params)
 	    return FALSE;
 	memcpy (new_params, params, nparams * sizeof (xFixed));
     }
     else
 	new_params = NULL;
-    if (dst->params)
-	xfree (dst->params);
+    free(dst->params);
     dst->filter = filter;
     dst->params = new_params;
     dst->nparams = nparams;

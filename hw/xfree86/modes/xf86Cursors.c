@@ -41,9 +41,7 @@
 #include "X11/extensions/render.h"
 #include "X11/extensions/dpmsconst.h"
 #include "X11/Xatom.h"
-#ifdef RENDER
 #include "picturestr.h"
-#endif
 #include "cursorstr.h"
 #include "inputstr.h"
 
@@ -553,7 +551,7 @@ xf86_cursors_init (ScreenPtr screen, int max_width, int max_height, int flags)
     if (!cursor_info)
 	return FALSE;
 
-    xf86_config->cursor_image = xalloc (max_width * max_height * 4);
+    xf86_config->cursor_image = malloc(max_width * max_height * 4);
 
     if (!xf86_config->cursor_image)
     {
@@ -611,7 +609,7 @@ xf86_reload_cursors (ScreenPtr screen)
     cursor_screen_priv = dixLookupPrivate(&screen->devPrivates,
 					  xf86CursorScreenKey);
     /* return if HW cursor is inactive, to avoid displaying two cursors */
-    if (!cursor_screen_priv->isUp)
+    if (!cursor_screen_priv || !cursor_screen_priv->isUp)
 	return;
 
     scrn = xf86Screens[screen->myNum];
@@ -663,7 +661,7 @@ xf86_cursors_fini (ScreenPtr screen)
     }
     if (xf86_config->cursor_image)
     {
-	xfree (xf86_config->cursor_image);
+	free(xf86_config->cursor_image);
 	xf86_config->cursor_image = NULL;
     }
     if (xf86_config->cursor)

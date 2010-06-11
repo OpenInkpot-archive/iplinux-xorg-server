@@ -94,9 +94,6 @@ Bool ShouldFreeInputMasks(WindowPtr /* pWin */ ,
 static Bool MakeInputMasks(WindowPtr	/* pWin */
     );
 
-/* Used to sture classes currently not in use by an MD */
-extern DevPrivateKey UnusedClassesPrivateKey;
-
 /*
  * Only let the given client know of core events which will affect its
  * interpretation of input events, if the client's ClientPointer (or the
@@ -196,16 +193,12 @@ void
 CopyKeyClass(DeviceIntPtr device, DeviceIntPtr master)
 {
     KeyClassPtr mk = master->key;
-    KeyClassPtr dk = device->key;
-    int i;
 
     if (device == master)
         return;
 
     mk->sourceid = device->id;
 
-    for (i = 0; i < 8; i++)
-        mk->modifierKeyCount[i] = dk->modifierKeyCount[i];
 
     if (!XkbCopyDeviceKeymap(master, device))
         FatalError("Couldn't pivot keymap from device to core!\n");
@@ -228,8 +221,7 @@ DeepCopyFeedbackClasses(DeviceIntPtr from, DeviceIntPtr to)
 
         if (!to->intfeed)
         {
-            classes = dixLookupPrivate(&to->devPrivates,
-                                       UnusedClassesPrivateKey);
+            classes = to->unused_classes;
             to->intfeed = classes->intfeed;
         }
 
@@ -238,7 +230,7 @@ DeepCopyFeedbackClasses(DeviceIntPtr from, DeviceIntPtr to)
         {
             if (!(*i))
             {
-                *i = xcalloc(1, sizeof(IntegerFeedbackClassRec));
+                *i = calloc(1, sizeof(IntegerFeedbackClassRec));
                 if (!(*i))
                 {
                     ErrorF("[Xi] Cannot alloc memory for class copy.");
@@ -253,7 +245,7 @@ DeepCopyFeedbackClasses(DeviceIntPtr from, DeviceIntPtr to)
     } else if (to->intfeed && !from->intfeed)
     {
         ClassesPtr classes;
-        classes = dixLookupPrivate(&to->devPrivates, UnusedClassesPrivateKey);
+        classes = to->unused_classes;
         classes->intfeed = to->intfeed;
         to->intfeed      = NULL;
     }
@@ -264,8 +256,7 @@ DeepCopyFeedbackClasses(DeviceIntPtr from, DeviceIntPtr to)
 
         if (!to->stringfeed)
         {
-            classes = dixLookupPrivate(&to->devPrivates,
-                                       UnusedClassesPrivateKey);
+            classes = to->unused_classes;
             to->stringfeed = classes->stringfeed;
         }
 
@@ -274,7 +265,7 @@ DeepCopyFeedbackClasses(DeviceIntPtr from, DeviceIntPtr to)
         {
             if (!(*s))
             {
-                *s = xcalloc(1, sizeof(StringFeedbackClassRec));
+                *s = calloc(1, sizeof(StringFeedbackClassRec));
                 if (!(*s))
                 {
                     ErrorF("[Xi] Cannot alloc memory for class copy.");
@@ -289,7 +280,7 @@ DeepCopyFeedbackClasses(DeviceIntPtr from, DeviceIntPtr to)
     } else if (to->stringfeed && !from->stringfeed)
     {
         ClassesPtr classes;
-        classes = dixLookupPrivate(&to->devPrivates, UnusedClassesPrivateKey);
+        classes = to->unused_classes;
         classes->stringfeed = to->stringfeed;
         to->stringfeed      = NULL;
     }
@@ -300,8 +291,7 @@ DeepCopyFeedbackClasses(DeviceIntPtr from, DeviceIntPtr to)
 
         if (!to->bell)
         {
-            classes = dixLookupPrivate(&to->devPrivates,
-                                       UnusedClassesPrivateKey);
+            classes = to->unused_classes;
             to->bell = classes->bell;
         }
 
@@ -310,7 +300,7 @@ DeepCopyFeedbackClasses(DeviceIntPtr from, DeviceIntPtr to)
         {
             if (!(*b))
             {
-                *b = xcalloc(1, sizeof(BellFeedbackClassRec));
+                *b = calloc(1, sizeof(BellFeedbackClassRec));
                 if (!(*b))
                 {
                     ErrorF("[Xi] Cannot alloc memory for class copy.");
@@ -326,7 +316,7 @@ DeepCopyFeedbackClasses(DeviceIntPtr from, DeviceIntPtr to)
     } else if (to->bell && !from->bell)
     {
         ClassesPtr classes;
-        classes = dixLookupPrivate(&to->devPrivates, UnusedClassesPrivateKey);
+        classes = to->unused_classes;
         classes->bell = to->bell;
         to->bell      = NULL;
     }
@@ -337,8 +327,7 @@ DeepCopyFeedbackClasses(DeviceIntPtr from, DeviceIntPtr to)
 
         if (!to->leds)
         {
-            classes = dixLookupPrivate(&to->devPrivates,
-                                       UnusedClassesPrivateKey);
+            classes = to->unused_classes;
             to->leds = classes->leds;
         }
 
@@ -347,7 +336,7 @@ DeepCopyFeedbackClasses(DeviceIntPtr from, DeviceIntPtr to)
         {
             if (!(*l))
             {
-                *l = xcalloc(1, sizeof(LedFeedbackClassRec));
+                *l = calloc(1, sizeof(LedFeedbackClassRec));
                 if (!(*l))
                 {
                     ErrorF("[Xi] Cannot alloc memory for class copy.");
@@ -365,7 +354,7 @@ DeepCopyFeedbackClasses(DeviceIntPtr from, DeviceIntPtr to)
     } else if (to->leds && !from->leds)
     {
         ClassesPtr classes;
-        classes = dixLookupPrivate(&to->devPrivates, UnusedClassesPrivateKey);
+        classes = to->unused_classes;
         classes->leds = to->leds;
         to->leds      = NULL;
     }
@@ -385,8 +374,7 @@ DeepCopyKeyboardClasses(DeviceIntPtr from, DeviceIntPtr to)
 
         if (!to->kbdfeed)
         {
-            classes = dixLookupPrivate(&to->devPrivates,
-                                       UnusedClassesPrivateKey);
+            classes = to->unused_classes;
 
             to->kbdfeed = classes->kbdfeed;
             if (!to->kbdfeed)
@@ -398,7 +386,7 @@ DeepCopyKeyboardClasses(DeviceIntPtr from, DeviceIntPtr to)
         {
             if (!(*k))
             {
-                *k = xcalloc(1, sizeof(KbdFeedbackClassRec));
+                *k = calloc(1, sizeof(KbdFeedbackClassRec));
                 if (!*k)
                 {
                     ErrorF("[Xi] Cannot alloc memory for class copy.");
@@ -417,7 +405,7 @@ DeepCopyKeyboardClasses(DeviceIntPtr from, DeviceIntPtr to)
     } else if (to->kbdfeed && !from->kbdfeed)
     {
         ClassesPtr classes;
-        classes = dixLookupPrivate(&to->devPrivates, UnusedClassesPrivateKey);
+        classes = to->unused_classes;
         classes->kbdfeed = to->kbdfeed;
         to->kbdfeed      = NULL;
     }
@@ -426,8 +414,7 @@ DeepCopyKeyboardClasses(DeviceIntPtr from, DeviceIntPtr to)
     {
         if (!to->key)
         {
-            classes = dixLookupPrivate(&to->devPrivates,
-                    UnusedClassesPrivateKey);
+            classes = to->unused_classes;
             to->key = classes->key;
             if (!to->key)
                 InitKeyboardDeviceStruct(to, NULL, NULL, NULL);
@@ -439,7 +426,7 @@ DeepCopyKeyboardClasses(DeviceIntPtr from, DeviceIntPtr to)
     } else if (to->key && !from->key)
     {
         ClassesPtr classes;
-        classes = dixLookupPrivate(&to->devPrivates, UnusedClassesPrivateKey);
+        classes = to->unused_classes;
         classes->key = to->key;
         to->key      = NULL;
     }
@@ -476,12 +463,11 @@ DeepCopyKeyboardClasses(DeviceIntPtr from, DeviceIntPtr to)
         {
             WindowPtr *oldTrace;
 
-            classes = dixLookupPrivate(&to->devPrivates,
-                                       UnusedClassesPrivateKey);
+            classes = to->unused_classes;
             to->focus = classes->focus;
             if (!to->focus)
             {
-                to->focus = xcalloc(1, sizeof(FocusClassRec));
+                to->focus = calloc(1, sizeof(FocusClassRec));
                 if (!to->focus)
                     FatalError("[Xi] no memory for class shift.\n");
             } else
@@ -489,7 +475,7 @@ DeepCopyKeyboardClasses(DeviceIntPtr from, DeviceIntPtr to)
 
             oldTrace = to->focus->trace;
             memcpy(to->focus, from->focus, sizeof(FocusClassRec));
-            to->focus->trace = xrealloc(oldTrace,
+            to->focus->trace = realloc(oldTrace,
                                   to->focus->traceSize * sizeof(WindowPtr));
             if (!to->focus->trace && to->focus->traceSize)
                 FatalError("[Xi] no memory for trace.\n");
@@ -500,7 +486,7 @@ DeepCopyKeyboardClasses(DeviceIntPtr from, DeviceIntPtr to)
     } else if (to->focus)
     {
         ClassesPtr classes;
-        classes = dixLookupPrivate(&to->devPrivates, UnusedClassesPrivateKey);
+        classes = to->unused_classes;
         classes->focus = to->focus;
         to->focus      = NULL;
     }
@@ -518,8 +504,7 @@ DeepCopyPointerClasses(DeviceIntPtr from, DeviceIntPtr to)
         PtrFeedbackPtr *p, it;
         if (!to->ptrfeed)
         {
-            classes = dixLookupPrivate(&to->devPrivates,
-                                       UnusedClassesPrivateKey);
+            classes = to->unused_classes;
             to->ptrfeed = classes->ptrfeed;
         }
 
@@ -528,7 +513,7 @@ DeepCopyPointerClasses(DeviceIntPtr from, DeviceIntPtr to)
         {
             if (!(*p))
             {
-                *p = xcalloc(1, sizeof(PtrFeedbackClassRec));
+                *p = calloc(1, sizeof(PtrFeedbackClassRec));
                 if (!*p)
                 {
                     ErrorF("[Xi] Cannot alloc memory for class copy.");
@@ -543,7 +528,7 @@ DeepCopyPointerClasses(DeviceIntPtr from, DeviceIntPtr to)
     } else if (to->ptrfeed && !from->ptrfeed)
     {
         ClassesPtr classes;
-        classes = dixLookupPrivate(&to->devPrivates, UnusedClassesPrivateKey);
+        classes = to->unused_classes;
         classes->ptrfeed = to->ptrfeed;
         to->ptrfeed      = NULL;
     }
@@ -553,14 +538,13 @@ DeepCopyPointerClasses(DeviceIntPtr from, DeviceIntPtr to)
         ValuatorClassPtr v;
         if (!to->valuator)
         {
-            classes = dixLookupPrivate(&to->devPrivates,
-                                       UnusedClassesPrivateKey);
+            classes = to->unused_classes;
             to->valuator = classes->valuator;
             if (to->valuator)
                 classes->valuator = NULL;
         }
 
-        to->valuator = xrealloc(to->valuator, sizeof(ValuatorClassRec) +
+        to->valuator = realloc(to->valuator, sizeof(ValuatorClassRec) +
                 from->valuator->numAxes * sizeof(AxisInfo) +
                 from->valuator->numAxes * sizeof(double));
         v = to->valuator;
@@ -577,7 +561,7 @@ DeepCopyPointerClasses(DeviceIntPtr from, DeviceIntPtr to)
     } else if (to->valuator && !from->valuator)
     {
         ClassesPtr classes;
-        classes = dixLookupPrivate(&to->devPrivates, UnusedClassesPrivateKey);
+        classes = to->unused_classes;
         classes->valuator = to->valuator;
         to->valuator      = NULL;
     }
@@ -586,12 +570,11 @@ DeepCopyPointerClasses(DeviceIntPtr from, DeviceIntPtr to)
     {
         if (!to->button)
         {
-            classes = dixLookupPrivate(&to->devPrivates,
-                                       UnusedClassesPrivateKey);
+            classes = to->unused_classes;
             to->button = classes->button;
             if (!to->button)
             {
-                to->button = xcalloc(1, sizeof(ButtonClassRec));
+                to->button = calloc(1, sizeof(ButtonClassRec));
                 if (!to->button)
                     FatalError("[Xi] no memory for class shift.\n");
             } else
@@ -602,14 +585,14 @@ DeepCopyPointerClasses(DeviceIntPtr from, DeviceIntPtr to)
         {
             if (!to->button->xkb_acts)
             {
-                to->button->xkb_acts = xcalloc(1, sizeof(XkbAction));
+                to->button->xkb_acts = calloc(1, sizeof(XkbAction));
                 if (!to->button->xkb_acts)
                     FatalError("[Xi] not enough memory for xkb_acts.\n");
             }
             memcpy(to->button->xkb_acts, from->button->xkb_acts,
                     sizeof(XkbAction));
         } else
-            xfree(to->button->xkb_acts);
+            free(to->button->xkb_acts);
 
          memcpy(to->button->labels, from->button->labels,
                 from->button->numButtons * sizeof(Atom));
@@ -617,7 +600,7 @@ DeepCopyPointerClasses(DeviceIntPtr from, DeviceIntPtr to)
     } else if (to->button && !from->button)
     {
         ClassesPtr classes;
-        classes = dixLookupPrivate(&to->devPrivates, UnusedClassesPrivateKey);
+        classes = to->unused_classes;
         classes->button = to->button;
         to->button      = NULL;
     }
@@ -626,12 +609,11 @@ DeepCopyPointerClasses(DeviceIntPtr from, DeviceIntPtr to)
     {
         if (!to->proximity)
         {
-            classes = dixLookupPrivate(&to->devPrivates,
-                                       UnusedClassesPrivateKey);
+            classes = to->unused_classes;
             to->proximity = classes->proximity;
             if (!to->proximity)
             {
-                to->proximity = xcalloc(1, sizeof(ProximityClassRec));
+                to->proximity = calloc(1, sizeof(ProximityClassRec));
                 if (!to->proximity)
                     FatalError("[Xi] no memory for class shift.\n");
             } else
@@ -642,7 +624,7 @@ DeepCopyPointerClasses(DeviceIntPtr from, DeviceIntPtr to)
     } else if (to->proximity)
     {
         ClassesPtr classes;
-        classes = dixLookupPrivate(&to->devPrivates, UnusedClassesPrivateKey);
+        classes = to->unused_classes;
         classes->proximity = to->proximity;
         to->proximity      = NULL;
     }
@@ -651,12 +633,11 @@ DeepCopyPointerClasses(DeviceIntPtr from, DeviceIntPtr to)
     {
         if (!to->absolute)
         {
-            classes = dixLookupPrivate(&to->devPrivates,
-                                       UnusedClassesPrivateKey);
+            classes = to->unused_classes;
             to->absolute = classes->absolute;
             if (!to->absolute)
             {
-                to->absolute = xcalloc(1, sizeof(AbsoluteClassRec));
+                to->absolute = calloc(1, sizeof(AbsoluteClassRec));
                 if (!to->absolute)
                     FatalError("[Xi] no memory for class shift.\n");
             } else
@@ -667,7 +648,7 @@ DeepCopyPointerClasses(DeviceIntPtr from, DeviceIntPtr to)
     } else if (to->absolute)
     {
         ClassesPtr classes;
-        classes = dixLookupPrivate(&to->devPrivates, UnusedClassesPrivateKey);
+        classes = to->unused_classes;
         classes->absolute = to->absolute;
         to->absolute      = NULL;
     }
@@ -713,7 +694,7 @@ XISendDeviceChangedEvent(DeviceIntPtr device, DeviceIntPtr master, DeviceChanged
     /* we don't actually swap if there's a NullClient, swapping is done
      * later when event is delivered. */
     SendEventToAllWindows(master, XI_DeviceChangedMask, (xEvent*)dcce, 1);
-    xfree(dcce);
+    free(dcce);
 }
 
 static void
@@ -941,9 +922,9 @@ ProcessRawEvent(RawDeviceEvent *ev, DeviceIntPtr device)
         }
 
         for (i = 0; i < screenInfo.numScreens; i++)
-            DeliverEventsToWindow(device, WindowTable[i], xi, 1,
+            DeliverEventsToWindow(device, screenInfo.screens[i]->root, xi, 1,
                                   GetEventFilter(device, xi), NULL);
-        xfree(xi);
+        free(xi);
     }
 }
 
@@ -1057,7 +1038,7 @@ ProcessOtherEvent(InternalEvent *ev, DeviceIntPtr device)
 
 	/* see comment in EnqueueEvents regarding the next three lines */
 	if (ev->any.type == ET_Motion)
-	    ev->device_event.root = WindowTable[pSprite->hotPhys.pScreen->myNum]->drawable.id;
+	    ev->device_event.root = pSprite->hotPhys.pScreen->root->drawable.id;
 
 	eventinfo.device = device;
 	eventinfo.event = ev;
@@ -1131,7 +1112,7 @@ InitProximityClassDeviceStruct(DeviceIntPtr dev)
 {
     ProximityClassPtr proxc;
 
-    proxc = (ProximityClassPtr) xalloc(sizeof(ProximityClassRec));
+    proxc = (ProximityClassPtr) malloc(sizeof(ProximityClassRec));
     if (!proxc)
 	return FALSE;
     proxc->sourceid = dev->id;
@@ -1247,7 +1228,7 @@ DeviceFocusEvent(DeviceIntPtr dev, int type, int mode, int detail,
     btlen = bytes_to_int32(btlen);
     len = sizeof(xXIFocusInEvent) + btlen * 4;
 
-    xi2event = xcalloc(1, len);
+    xi2event = calloc(1, len);
     xi2event->type         = GenericEvent;
     xi2event->extension    = IReqCode;
     xi2event->evtype       = type;
@@ -1283,7 +1264,7 @@ DeviceFocusEvent(DeviceIntPtr dev, int type, int mode, int detail,
     DeliverEventsToWindow(dev, pWin, (xEvent*)xi2event, 1,
                           GetEventFilter(dev, (xEvent*)xi2event), NullGrab);
 
-    xfree(xi2event);
+    free(xi2event);
 
     /* XI 1.x event */
     event.deviceid = dev->id;
@@ -1337,7 +1318,7 @@ DeviceFocusEvent(DeviceIntPtr dev, int type, int mode, int detail,
 	    }
 	}
 
-	sev = ev = (deviceStateNotify *) xalloc(evcount * sizeof(xEvent));
+	sev = ev = (deviceStateNotify *) malloc(evcount * sizeof(xEvent));
 	FixDeviceStateNotify(dev, ev, NULL, NULL, NULL, first);
 
 	if (b != NULL) {
@@ -1392,7 +1373,7 @@ DeviceFocusEvent(DeviceIntPtr dev, int type, int mode, int detail,
 
 	DeliverEventsToWindow(dev, pWin, (xEvent *) sev, evcount,
 				    DeviceStateNotifyMask, NullGrab);
-	xfree(sev);
+	free(sev);
     }
 }
 
@@ -1460,7 +1441,7 @@ GrabButton(ClientPtr client, DeviceIntPtr dev, DeviceIntPtr modifier_device,
 	if (rc != Success)
 	{
 	    client->errorValue = param->cursor;
-	    return (rc == BadValue) ? BadCursor : rc;
+	    return rc;
 	}
 	access_mode |= DixForceAccess;
     }
@@ -1558,7 +1539,7 @@ GrabWindow(ClientPtr client, DeviceIntPtr dev, int type,
 	if (rc != Success)
 	{
 	    client->errorValue = param->cursor;
-	    return (rc == BadValue) ? BadCursor : rc;
+	    return rc;
 	}
 	access_mode |= DixForceAccess;
     }
@@ -1642,7 +1623,7 @@ AddExtensionClient(WindowPtr pWin, ClientPtr client, Mask mask, int mskidx)
 
     if (!pWin->optional && !MakeWindowOptional(pWin))
 	return BadAlloc;
-    others = xcalloc(1, sizeof(InputClients));
+    others = calloc(1, sizeof(InputClients));
     if (!others)
 	return BadAlloc;
     if (!pWin->optional->inputMasks && !MakeInputMasks(pWin))
@@ -1661,7 +1642,7 @@ MakeInputMasks(WindowPtr pWin)
 {
     struct _OtherInputMasks *imasks;
 
-    imasks = xcalloc(1, sizeof(struct _OtherInputMasks));
+    imasks = calloc(1, sizeof(struct _OtherInputMasks));
     if (!imasks)
 	return FALSE;
     pWin->optional->inputMasks = imasks;
@@ -1717,21 +1698,21 @@ InputClientGone(WindowPtr pWin, XID id)
     InputClientsPtr other, prev;
 
     if (!wOtherInputMasks(pWin))
-	return (Success);
+	return Success;
     prev = 0;
     for (other = wOtherInputMasks(pWin)->inputClients; other;
 	 other = other->next) {
 	if (other->resource == id) {
 	    if (prev) {
 		prev->next = other->next;
-		xfree(other);
+		free(other);
 	    } else if (!(other->next)) {
 		if (ShouldFreeInputMasks(pWin, TRUE)) {
 		    wOtherInputMasks(pWin)->inputClients = other->next;
-		    xfree(wOtherInputMasks(pWin));
+		    free(wOtherInputMasks(pWin));
 		    pWin->optional->inputMasks = (OtherInputMasks *) NULL;
 		    CheckWindowOptionalNeed(pWin);
-		    xfree(other);
+		    free(other);
 		} else {
 		    other->resource = FakeClientID(0);
 		    if (!AddResource(other->resource, RT_INPUTCLIENT,
@@ -1740,10 +1721,10 @@ InputClientGone(WindowPtr pWin, XID id)
 		}
 	    } else {
 		wOtherInputMasks(pWin)->inputClients = other->next;
-		xfree(other);
+		free(other);
 	    }
 	    RecalculateDeviceDeliverableEvents(pWin);
-	    return (Success);
+	    return Success;
 	}
 	prev = other;
     }
@@ -1844,7 +1825,7 @@ ChangeKeyMapping(ClientPtr client,
     KeyClassPtr k = dev->key;
 
     if (k == NULL)
-	return (BadMatch);
+	return BadMatch;
 
     if (len != (keyCodes * keySymsPerKeyCode))
 	return BadLength;
@@ -1866,7 +1847,7 @@ ChangeKeyMapping(ClientPtr client,
     XkbApplyMappingChange(dev, &keysyms, firstKeyCode, keyCodes, NULL,
                           serverClient);
 
-    return client->noClientException;
+    return Success;
 }
 
 static void
@@ -1987,7 +1968,7 @@ MaybeSendDeviceMotionNotifyHint(deviceKeyButtonPointer * pEvents, Mask mask)
 	    pEvents->detail = NotifyNormal;
 	}
     }
-    return (0);
+    return 0;
 }
 
 void
@@ -2135,7 +2116,7 @@ SendEventToAllWindows(DeviceIntPtr dev, Mask mask, xEvent * ev, int count)
     WindowPtr pWin, p1;
 
     for (i = 0; i < screenInfo.numScreens; i++) {
-        pWin = WindowTable[i];
+        pWin = screenInfo.screens[i]->root;
         if (!pWin)
             continue;
         DeliverEventsToWindow(dev, pWin, ev, count, mask, NullGrab);

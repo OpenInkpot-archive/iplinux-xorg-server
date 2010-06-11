@@ -42,7 +42,6 @@
 #include "scrnintstr.h"
 #include "pixmapstr.h"
 #include "extnsionst.h"
-#include "xf86drm.h"
 #include "xfixes.h"
 #include "dri2.h"
 #include "protocol-versions.h"
@@ -51,13 +50,14 @@
 #include "xf86Module.h"
 
 static ExtensionEntry	*dri2Extension;
-static RESTYPE		 dri2DrawableRes;
 
 static Bool
 validDrawable(ClientPtr client, XID drawable, Mask access_mode,
 	      DrawablePtr *pDrawable, int *status)
 {
-    *status = dixLookupDrawable(pDrawable, drawable, client, 0, access_mode);
+    *status = dixLookupDrawable(pDrawable, drawable, client,
+				M_DRAWABLE_WINDOW | M_DRAWABLE_PIXMAP,
+				access_mode);
     if (*status != Success) {
 	client->errorValue = drawable;
 	return FALSE;
@@ -80,8 +80,8 @@ ProcDRI2QueryVersion(ClientPtr client)
     rep.type = X_Reply;
     rep.length = 0;
     rep.sequenceNumber = client->sequence;
-    rep.majorVersion = SERVER_DRI2_MAJOR_VERSION;
-    rep.minorVersion = SERVER_DRI2_MINOR_VERSION;
+    rep.majorVersion = dri2_major;
+    rep.minorVersion = dri2_minor;
 
     if (client->swapped) {
     	swaps(&rep.sequenceNumber, n);
@@ -92,7 +92,7 @@ ProcDRI2QueryVersion(ClientPtr client)
 
     WriteToClient(client, sizeof(xDRI2QueryVersionReply), &rep);
 
-    return client->noClientException;
+    return Success;
 }
 
 static int
@@ -130,7 +130,7 @@ ProcDRI2Connect(ClientPtr client)
     WriteToClient(client, rep.driverNameLength, driverName);
     WriteToClient(client, rep.deviceNameLength, deviceName);
 
-    return client->noClientException;
+    return Success;
 }
 
 static int
@@ -152,7 +152,19 @@ ProcDRI2Authenticate(ClientPtr client)
     rep.authenticated = DRI2Authenticate(pDraw->pScreen, stuff->magic);
     WriteToClient(client, sizeof(xDRI2AuthenticateReply), &rep);
 
-    return client->noClientException;
+    return Success;
+}
+
+static void
+DRI2InvalidateBuffersEvent(DrawablePtr pDraw, void *priv)
+{
+    xDRI2InvalidateBuffers event;
+    ClientPtr client = priv;
+
+    event.type = DRI2EventBase + DRI2_InvalidateBuffers;
+    event.drawable = pDraw->id;
+
+    WriteEventsToClient(client, 1, (xEvent *)&event);
 }
 
 static int
@@ -168,16 +180,12 @@ ProcDRI2CreateDrawable(ClientPtr client)
 		       &pDrawable, &status))
 	return status;
 
-    status = DRI2CreateDrawable(pDrawable);
+    status = DRI2CreateDrawable(client, pDrawable, stuff->drawable,
+				DRI2InvalidateBuffersEvent, client);
     if (status != Success)
 	return status;
 
-    if (!AddResource(stuff->drawable, dri2DrawableRes, pDrawable)) {
-	DRI2DestroyDrawable(pDrawable);
-	return BadAlloc;
-    }
-
-    return client->noClientException;
+    return Success;
 }
 
 static int
@@ -192,19 +200,20 @@ ProcDRI2DestroyDrawable(ClientPtr client)
 		       &pDrawable, &status))
 	return status;
 
-    FreeResourceByType(stuff->drawable, dri2DrawableRes, FALSE);
-
-    return client->noClientException;
+    return Success;
 }
 
 
-static void
+static int
 send_buffers_reply(ClientPtr client, DrawablePtr pDrawable,
 		   DRI2BufferPtr *buffers, int count, int width, int height)
 {
     xDRI2GetBuffersReply rep;
     int skip = 0;
     int i;
+
+    if (buffers == NULL)
+	    return BadAlloc;
 
     if (pDrawable->type == DRAWABLE_WINDOW) {
 	for (i = 0; i < count; i++) {
@@ -242,6 +251,7 @@ send_buffers_reply(ClientPtr client, DrawablePtr pDrawable,
 	buffer.flags = buffers[i]->flags;
 	WriteToClient(client, sizeof(xDRI2Buffer), &buffer);
     }
+    return Success;
 }
 
 
@@ -260,16 +270,15 @@ ProcDRI2GetBuffers(ClientPtr client)
 	return status;
 
     if (DRI2ThrottleClient(client, pDrawable))
-	return client->noClientException;
+	return Success;
 
     attachments = (unsigned int *) &stuff[1];
     buffers = DRI2GetBuffers(pDrawable, &width, &height,
 			     attachments, stuff->count, &count);
 
 
-    send_buffers_reply(client, pDrawable, buffers, count, width, height);
+    return send_buffers_reply(client, pDrawable, buffers, count, width, height);
 
-    return client->noClientException;
 }
 
 static int
@@ -287,15 +296,13 @@ ProcDRI2GetBuffersWithFormat(ClientPtr client)
 	return status;
 
     if (DRI2ThrottleClient(client, pDrawable))
-	return client->noClientException;
+	return Success;
 
     attachments = (unsigned int *) &stuff[1];
     buffers = DRI2GetBuffersWithFormat(pDrawable, &width, &height,
 				       attachments, stuff->count, &count);
 
-    send_buffers_reply(client, pDrawable, buffers, count, width, height);
-
-    return client->noClientException;
+    return send_buffers_reply(client, pDrawable, buffers, count, width, height);
 }
 
 static int
@@ -332,7 +339,7 @@ ProcDRI2CopyRegion(ClientPtr client)
 
     WriteToClient(client, sizeof(xDRI2CopyRegionReply), &rep);
 
-    return client->noClientException;
+    return Success;
 }
 
 static void
@@ -356,7 +363,6 @@ DRI2SwapEvent(ClientPtr client, void *data, int type, CARD64 ust, CARD64 msc,
     DrawablePtr pDrawable = data;
 
     event.type = DRI2EventBase + DRI2_BufferSwapComplete;
-    event.sequenceNumber = client->sequence;
     event.event_type = type;
     event.drawable = pDrawable->id;
     event.ust_hi = (CARD64)ust >> 32;
@@ -384,6 +390,13 @@ ProcDRI2SwapBuffers(ClientPtr client)
 		       DixReadAccess | DixWriteAccess, &pDrawable, &status))
 	return status;
 
+    /*
+     * Ensures an out of control client can't exhaust our swap queue, and
+     * also orders swaps.
+     */
+    if (DRI2ThrottleClient(client, pDrawable))
+	return Success;
+
     target_msc = vals_to_card64(stuff->target_msc_lo, stuff->target_msc_hi);
     divisor = vals_to_card64(stuff->divisor_lo, stuff->divisor_hi);
     remainder = vals_to_card64(stuff->remainder_lo, stuff->remainder_hi);
@@ -400,7 +413,7 @@ ProcDRI2SwapBuffers(ClientPtr client)
 
     WriteToClient(client, sizeof(xDRI2SwapBuffersReply), &rep);
 
-    return client->noClientException;
+    return Success;
 }
 
 static void
@@ -440,7 +453,7 @@ ProcDRI2GetMSC(ClientPtr client)
 
     WriteToClient(client, sizeof(xDRI2MSCReply), &rep);
 
-    return client->noClientException;
+    return Success;
 }
 
 static int
@@ -467,7 +480,7 @@ ProcDRI2WaitMSC(ClientPtr client)
     if (status != Success)
 	return status;
 
-    return client->noClientException;
+    return Success;
 }
 
 int
@@ -482,7 +495,7 @@ ProcDRI2WaitMSCReply(ClientPtr client, CARD64 ust, CARD64 msc, CARD64 sbc)
 
     WriteToClient(client, sizeof(xDRI2MSCReply), &rep);
 
-    return client->noClientException;
+    return Success;
 }
 
 static int
@@ -502,16 +515,15 @@ ProcDRI2SwapInterval(ClientPtr client)
 
     DRI2SwapInterval(pDrawable, stuff->interval);
 
-    return client->noClientException;
+    return Success;
 }
 
 static int
 ProcDRI2WaitSBC(ClientPtr client)
 {
     REQUEST(xDRI2WaitSBCReq);
-    xDRI2MSCReply rep;
     DrawablePtr pDrawable;
-    CARD64 target, ust, msc, sbc;
+    CARD64 target;
     int status;
 
     REQUEST_SIZE_MATCH(xDRI2WaitSBCReq);
@@ -521,18 +533,9 @@ ProcDRI2WaitSBC(ClientPtr client)
 	return status;
 
     target = vals_to_card64(stuff->target_sbc_lo, stuff->target_sbc_hi);
-    status = DRI2WaitSBC(client, pDrawable, target, &ust, &msc, &sbc);
-    if (status != Success)
-	return status;
+    status = DRI2WaitSBC(client, pDrawable, target);
 
-    rep.type = X_Reply;
-    rep.length = 0;
-    rep.sequenceNumber = client->sequence;
-    load_msc_reply(&rep, ust, msc, sbc);
-
-    WriteToClient(client, sizeof(xDRI2MSCReply), &rep);
-
-    return client->noClientException;
+    return status;
 }
 
 static int
@@ -597,7 +600,7 @@ SProcDRI2Connect(ClientPtr client)
     rep.driverNameLength = 0;
     rep.deviceNameLength = 0;
 
-    return client->noClientException;
+    return Success;
 }
 
 static int
@@ -620,25 +623,11 @@ SProcDRI2Dispatch (ClientPtr client)
     }
 }
 
-static int DRI2DrawableGone(pointer p, XID id)
-{
-    DrawablePtr pDrawable = p;
-
-    DRI2DestroyDrawable(pDrawable);
-
-    return Success;
-}
-
 int DRI2EventBase;
 
 static void
 DRI2ExtensionInit(void)
 {
-    dri2DrawableRes = CreateNewResourceType(DRI2DrawableGone, "DRI2Drawable");
-
-    if (!dri2DrawableRes)
-	return;
-
     dri2Extension = AddExtension(DRI2_NAME,
 				 DRI2NumberEvents,
 				 DRI2NumberErrors,

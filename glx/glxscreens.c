@@ -44,8 +44,8 @@
 #include "glxext.h"
 #include "protocol-versions.h"
 
-static int glxScreenPrivateKeyIndex;
-static DevPrivateKey glxScreenPrivateKey = &glxScreenPrivateKeyIndex;
+static DevPrivateKeyRec glxScreenPrivateKeyRec;
+#define glxScreenPrivateKey (&glxScreenPrivateKeyRec)
 
 const char GLServerVersion[] = "1.4";
 static const char GLServerExtensions[] = 
@@ -215,7 +215,6 @@ glxCloseScreen (int index, ScreenPtr pScreen)
     __GLXscreen *pGlxScreen = glxGetScreen(pScreen);
 
     pScreen->CloseScreen = pGlxScreen->CloseScreen;
-    pScreen->DestroyWindow = pGlxScreen->DestroyWindow;
 
     pGlxScreen->destroy(pGlxScreen);
 
@@ -347,36 +346,14 @@ pickFBConfig(__GLXscreen *pGlxScreen, VisualPtr visual)
     return best;
 }
 
-static Bool
-glxDestroyWindow(WindowPtr pWin)
-{
-    ScreenPtr pScreen = pWin->drawable.pScreen;
-    __GLXscreen *pGlxScreen = glxGetScreen(pScreen);
-    Bool retval = TRUE;
-
-    FreeResource(pWin->drawable.id, FALSE);
-
-    /* call lower wrapped functions */
-    if (pGlxScreen->DestroyWindow) {
-	/* unwrap */
-	pScreen->DestroyWindow = pGlxScreen->DestroyWindow;
-
-	/* call lower layers */
-	retval = (*pScreen->DestroyWindow)(pWin);
-
-	/* rewrap */
-	pGlxScreen->DestroyWindow = pScreen->DestroyWindow;
-	pScreen->DestroyWindow = glxDestroyWindow;
-    }
-
-    return retval;
-}
-
 void __glXScreenInit(__GLXscreen *pGlxScreen, ScreenPtr pScreen)
 {
     __GLXconfig *m;
     __GLXconfig *config;
     int i;
+
+    if (!dixRegisterPrivateKey(&glxScreenPrivateKeyRec, PRIVATE_SCREEN, 0))
+	return;
 
     pGlxScreen->pScreen       = pScreen;
     pGlxScreen->GLextensions  = xstrdup(GLServerExtensions);
@@ -394,8 +371,6 @@ void __glXScreenInit(__GLXscreen *pGlxScreen, ScreenPtr pScreen)
 
     pGlxScreen->CloseScreen = pScreen->CloseScreen;
     pScreen->CloseScreen = glxCloseScreen;
-    pGlxScreen->DestroyWindow = pScreen->DestroyWindow;
-    pScreen->DestroyWindow = glxDestroyWindow;
 
     i = 0;
     for (m = pGlxScreen->fbconfigs; m != NULL; m = m->next) {
@@ -406,7 +381,7 @@ void __glXScreenInit(__GLXscreen *pGlxScreen, ScreenPtr pScreen)
     pGlxScreen->numFBConfigs = i;
 
     pGlxScreen->visuals =
-	xcalloc(pGlxScreen->numFBConfigs, sizeof (__GLXconfig *));
+	calloc(pGlxScreen->numFBConfigs, sizeof (__GLXconfig *));
 
     /* First, try to choose featureful FBconfigs for the existing X visuals.
      * Note that if multiple X visuals end up with the same FBconfig being
@@ -464,7 +439,7 @@ void __glXScreenInit(__GLXscreen *pGlxScreen, ScreenPtr pScreen)
 
 void __glXScreenDestroy(__GLXscreen *screen)
 {
-    xfree(screen->GLXvendor);
-    xfree(screen->GLXextensions);
-    xfree(screen->GLextensions);
+    free(screen->GLXvendor);
+    free(screen->GLXextensions);
+    free(screen->GLextensions);
 }

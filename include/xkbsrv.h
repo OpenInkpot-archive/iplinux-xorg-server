@@ -275,7 +275,9 @@ typedef struct
 	device->public.realInputProc = oldprocs->realInputProc; \
 	device->unwrapProc = oldprocs->unwrapProc;
 
-extern DevPrivateKey xkbDevicePrivateKey;
+extern _X_EXPORT DevPrivateKeyRec xkbDevicePrivateKeyRec;
+#define xkbDevicePrivateKey (&xkbDevicePrivateKeyRec)
+
 #define XKBDEVICEINFO(dev) ((xkbDeviceInfoPtr)dixLookupPrivate(&(dev)->devPrivates, xkbDevicePrivateKey))
 
 extern void xkbUnwrapProc(DeviceIntPtr, DeviceHandleProc, pointer);
@@ -318,6 +320,8 @@ extern _X_EXPORT int XkbProcessArguments(
     char **			/* argv */,
     int				/* i */
 );
+
+extern _X_EXPORT Bool   XkbInitPrivates(void);
 
 extern _X_EXPORT void	XkbSetExtension(DeviceIntPtr device, ProcessInputProc proc);
 
@@ -768,18 +772,6 @@ extern _X_EXPORT void XkbDDXUpdateDeviceIndicators(
 	CARD32			/* newState */
 );
 
-extern _X_EXPORT void XkbDDXFakePointerMotion(
- 	unsigned int	/* flags */,
-	int		/* x */,
-	int		/* y */
-);
-
-extern _X_EXPORT void XkbDDXFakeDeviceButton(
-	DeviceIntPtr	/* dev */,
-	Bool		/* press */,
-	int		/* button */
-);
-
 extern _X_EXPORT int XkbDDXTerminateServer(
 	DeviceIntPtr	/* dev */,
 	KeyCode		/* key */,
@@ -918,7 +910,7 @@ extern Bool XkbCopyKeymap(
         XkbDescPtr              /* dst */,
         XkbDescPtr              /* src */);
 
-extern Bool XkbCopyDeviceKeymap(
+extern _X_EXPORT Bool XkbCopyDeviceKeymap(
         DeviceIntPtr            /* dst */,
         DeviceIntPtr            /* src */);
 

@@ -60,11 +60,13 @@ extern int              focusOnNewWindow;
 extern int              quartzUseAGL;
 extern int              quartzEnableKeyEquivalents;
 extern int              quartzFullscreenDisableHotkeys;
+extern int              quartzOptionSendsAlt;
 
 // Other shared data
 extern int              quartzServerVisible;
 extern int              quartzServerQuitting;
-extern DevPrivateKey    quartzScreenKey;
+extern DevPrivateKeyRec quartzScreenKeyRec;
+#define quartzScreenKey (&quartzScreenKeyRec)
 extern int              aquaMenuBarHeight;
 
 // Name of GLX bundle for native OpenGL

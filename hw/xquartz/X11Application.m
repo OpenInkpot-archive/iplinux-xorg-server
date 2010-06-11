@@ -52,7 +52,7 @@
 #include <Xplugin.h>
 
 // pbproxy/pbproxy.h
-extern BOOL xpbproxy_init (void);
+extern int xpbproxy_run (void);
 
 #define DEFAULTS_FILE X11LIBDIR"/X11/xserver/Xquartz.plist"
 
@@ -712,10 +712,13 @@ static NSMutableArray * cfarray_to_nsarray (CFArrayRef in) {
                                            default:quartzEnableRootless];
     quartzFullscreenMenu = [self prefs_get_boolean:@PREFS_FULLSCREEN_MENU
                                            default:quartzFullscreenMenu];
-    quartzFullscreenDisableHotkeys = ![self prefs_get_boolean:
-                            @PREFS_FULLSCREEN_HOTKEYS default:!quartzFullscreenDisableHotkeys];
+    quartzFullscreenDisableHotkeys = ![self prefs_get_boolean:@PREFS_FULLSCREEN_HOTKEYS
+                                                      default:!quartzFullscreenDisableHotkeys];
     darwinFakeButtons = [self prefs_get_boolean:@PREFS_FAKEBUTTONS
                                         default:darwinFakeButtons];
+    quartzOptionSendsAlt = [self prefs_get_boolean:@PREFS_OPTION_SENDS_ALT
+                                           default:quartzOptionSendsAlt];
+
     if (darwinFakeButtons) {
         const char *fake2, *fake3;
 
@@ -908,6 +911,26 @@ environment the next time you start X11?", @"Startup xinitrc dialog");
     [X11App prefs_synchronize];
 }
 
+static inline pthread_t create_thread(void *func, void *arg) {
+    pthread_attr_t attr;
+    pthread_t tid;
+    
+    pthread_attr_init(&attr);
+    pthread_attr_setscope(&attr, PTHREAD_SCOPE_SYSTEM);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_create(&tid, &attr, func, arg);
+    pthread_attr_destroy(&attr);
+    
+    return tid;
+}
+
+static void *xpbproxy_x_thread(void *args) {
+    xpbproxy_run();
+
+    fprintf(stderr, "xpbproxy thread is terminating unexpectedly.\n");
+    return NULL;
+}
+
 void X11ApplicationMain (int argc, char **argv, char **envp) {
     NSAutoreleasePool *pool;
 
@@ -949,8 +972,7 @@ void X11ApplicationMain (int argc, char **argv, char **envp) {
         fprintf(stderr, "X11ApplicationMain: Unable to determine KLGetCurrentKeyboardLayout() at startup.\n");
 #endif
 
-    memset(keyInfo.keyMap, 0, sizeof(keyInfo.keyMap));
-    if (!QuartzReadSystemKeymap(&keyInfo)) {
+    if (!QuartsResyncKeymap(FALSE)) {
         fprintf(stderr, "X11ApplicationMain: Could not build a valid keymap.\n");
     }
 
@@ -962,8 +984,7 @@ void X11ApplicationMain (int argc, char **argv, char **envp) {
      */
     check_xinitrc();
     
-    if(!xpbproxy_init())
-        fprintf(stderr, "Error initializing xpbproxy\n");
+    create_thread(xpbproxy_x_thread, NULL);
 
 #if XQUARTZ_SPARKLE
     [[X11App controller] setup_sparkle];
@@ -1009,20 +1030,32 @@ static inline int ensure_flag(int flags, int device_independent, int device_depe
     if(isMouseOrTabletEvent) {
         static NSPoint lastpt;
         NSWindow *window = [e window];
-        NSRect screen = [[[NSScreen screens] objectAtIndex:0] frame];;
+        NSRect screen = [[[NSScreen screens] objectAtIndex:0] frame];
+	    BOOL hasUntrustedPointerDelta;
+        
+        // NSEvents for tablets are not consistent wrt deltaXY between events, so we cannot rely on that
+        // Thus tablets will be subject to the warp-pointer bug worked around by the delta, but tablets
+        // are not normally used in cases where that bug would present itself, so this is a fair tradeoff
+        // <rdar://problem/7111003> deltaX and deltaY are incorrect for NSMouseMoved, NSTabletPointEventSubtype
+        // http://xquartz.macosforge.org/trac/ticket/288
+        hasUntrustedPointerDelta = isTabletEvent;
+        
+        // The deltaXY for middle click events also appear erroneous after fast user switching
+        // <rdar://problem/7979468> deltaX and deltaY are incorrect for NSOtherMouseDown and NSOtherMouseUp after FUS
+        // http://xquartz.macosforge.org/trac/ticket/389
+        hasUntrustedPointerDelta = hasUntrustedPointerDelta || [e type] == NSOtherMouseDown || [e type] == NSOtherMouseUp;
 
+        // The deltaXY for scroll events correspond to the scroll delta, not the pointer delta
+        // <rdar://problem/7989690> deltaXY for wheel events are being sent as mouse movement
+        hasUntrustedPointerDelta = hasUntrustedPointerDelta || [e type] == NSScrollWheel;
+        
         if (window != nil)	{
             NSRect frame = [window frame];
             location = [e locationInWindow];
             location.x += frame.origin.x;
             location.y += frame.origin.y;
             lastpt = location;
-        } else if(isTabletEvent) {
-            // NSEvents for tablets are not consistent wrt deltaXY between events, so we cannot rely on that
-            // Thus tablets will be subject to the warp-pointer bug worked around by the delta, but tablets
-            // are not normally used in cases where that bug would present itself, so this is a fair tradeoff
-            // <rdar://problem/7111003> deltaX and deltaY are incorrect for NSMouseMoved, NSTabletPointEventSubtype
-            // http://xquartz.macosforge.org/trac/ticket/288
+        } else if(hasUntrustedPointerDelta) {
             location = [e locationInWindow];
             lastpt = location;
         } else {
@@ -1210,17 +1243,10 @@ static inline int ensure_flag(int flags, int device_independent, int device_depe
                 if(key_layout != last_key_layout) {
                     last_key_layout = key_layout;
 #endif
-
                     /* Update keyInfo */
-                    pthread_mutex_lock(&keyInfo_mutex);
-                    memset(keyInfo.keyMap, 0, sizeof(keyInfo.keyMap));
-                    if (!QuartzReadSystemKeymap(&keyInfo)) {
+                    if (!QuartsResyncKeymap(TRUE)) {
                         fprintf(stderr, "sendX11NSEvent: Could not build a valid keymap.\n");
                     }
-                    pthread_mutex_unlock(&keyInfo_mutex);
-                    
-                    /* Tell server thread to deal with new keyInfo */
-                    DarwinSendDDXEvent(kXquartzReloadKeymap, 0);
                 }
             }
 

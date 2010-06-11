@@ -35,9 +35,10 @@
 #include "dri.h"
 
 #include <OpenGL/OpenGL.h>
+#include <OpenGL/gl.h>
+#include <OpenGL/glext.h>
 #include <OpenGL/CGLContext.h>
 
-#include <GL/gl.h>
 #include <GL/glxproto.h>
 #include <windowstr.h>
 #include <resource.h>
@@ -114,7 +115,7 @@ __GLXconfig *__glXAquaCreateVisualConfigs(int *numConfigsPtr, int screenNumber) 
     if(numConfigsPtr)
         *numConfigsPtr = numConfigs; 
     
-    visualConfigs = xcalloc(sizeof(*visualConfigs), numConfigs);
+    visualConfigs = calloc(sizeof(*visualConfigs), numConfigs);
     
     if(NULL == visualConfigs) {
         ErrorF("xcalloc failure when allocating visualConfigs\n");

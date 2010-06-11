@@ -163,7 +163,7 @@ bus_sbus_newdev_configure(void *busData, int i)
 	if (promPath) {
 	    DevToConfig[i].GDev.busID = xnfalloc(strlen(promPath) + 6);
 	    sprintf(DevToConfig[i].GDev.busID, "SBUS:%s", promPath);
-	    xfree(promPath);
+	    free(promPath);
 	} else {
 	    DevToConfig[i].GDev.busID = xnfalloc(12);
 	    sprintf(DevToConfig[i].GDev.busID, "SBUS:fb%d",
@@ -322,7 +322,7 @@ configureScreenSection (int screennum)
 }
 
 static const char* 
-optionTypeToSting(OptionValueType type)
+optionTypeToString(OptionValueType type)
 {
     switch (type) {
     case OPTV_NONE:
@@ -339,6 +339,8 @@ optionTypeToSting(OptionValueType type)
         return "[<bool>]";
     case OPTV_FREQ:
         return "<freq>";
+    case OPTV_PERCENT:
+        return "<percent>";
     default:
         return "";
     }
@@ -384,7 +386,8 @@ configureDeviceSection (int screennum)
 	    "        ### Available Driver options are:-\n"
 	    "        ### Values: <i>: integer, <f>: float, "
 			"<bool>: \"True\"/\"False\",\n"
-	    "        ### <string>: \"String\", <freq>: \"<f> Hz/kHz/MHz\"\n"
+	    "        ### <string>: \"String\", <freq>: \"<f> Hz/kHz/MHz\",\n"
+	    "        ### <percent>: \"<f>%\"\n"
 	    "        ### [arg]: arg optional\n";
 	ptr->dev_comment = xstrdup(descrip);
 	if (ptr->dev_comment) {
@@ -394,12 +397,12 @@ configureDeviceSection (int screennum)
 		const char *prefix = "        #Option     ";
 		const char *middle = " \t# ";
 		const char *suffix = "\n";
-		const char *opttype = optionTypeToSting(p->type);
+		const char *opttype = optionTypeToString(p->type);
 		char *optname;
 		int len = strlen(ptr->dev_comment) + strlen(prefix) +
 			  strlen(middle) + strlen(suffix) + 1;
 		
-		optname = xalloc(strlen(p->name) + 2 + 1);
+		optname = malloc(strlen(p->name) + 2 + 1);
 		if (!optname)
 		    break;
 		sprintf(optname, "\"%s\"", p->name);
@@ -407,13 +410,13 @@ configureDeviceSection (int screennum)
 		len += max(20, strlen(optname));
 		len += strlen(opttype);
 
-		ptr->dev_comment = xrealloc(ptr->dev_comment, len);
+		ptr->dev_comment = realloc(ptr->dev_comment, len);
 		if (!ptr->dev_comment)
 		    break;
 		p_e = ptr->dev_comment + strlen(ptr->dev_comment);
 		sprintf(p_e, "%s%-20s%s%s%s", prefix, optname, middle,
 			opttype, suffix);
-		xfree(optname);
+		free(optname);
 	    }
     	}
     }
@@ -512,7 +515,7 @@ configureModuleSection (void)
             ptr->mod_load_lst = (XF86LoadPtr)xf86addListItem(
                                 (glp)ptr->mod_load_lst, (glp)module);
     	}
-	xfree(elist);
+	free(elist);
     }
 
     return ptr;
@@ -612,7 +615,7 @@ configureDDCMonitorSection (int screennum)
 	  len = 0;
 	}
 	if ((ptr->mon_comment =
-	     realloc(ptr->mon_comment, len+strlen(displaySize_string)))) {
+	     realloc(ptr->mon_comment, len + strlen(displaySize_string) + 1))) {
 	  strcpy(ptr->mon_comment + len, displaySize_string);
 	}
       }
@@ -658,7 +661,7 @@ DoConfigure(void)
     /* Load all the drivers that were found. */
     xf86LoadModules(vlist, NULL);
 
-    xfree(vlist);
+    free(vlist);
 
     for (i = 0; i < xf86NumDrivers; i++) {
 	xorgHWFlags flags;
@@ -678,8 +681,6 @@ DoConfigure(void)
 	    xorgHWAccess = FALSE;
     }
 
-    xf86FindPrimaryDevice();
- 
     /* Create XF86Config file structure */
     xf86config = calloc(1, sizeof(XF86ConfigRec));
 
@@ -807,7 +808,7 @@ DoConfigure(void)
 		}
 	    }
 	}
-	xfree(driverProbed);
+	free(driverProbed);
     }
     
 
@@ -818,7 +819,6 @@ DoConfigure(void)
     }
 
     xf86PostProbe();
-    xf86EntityInit();
 
     for (j = 0; j < xf86NumScreens; j++) {
 	xf86Screens[j]->scrnIndex = j;
@@ -834,7 +834,6 @@ DoConfigure(void)
 
 	ConfiguredMonitor = NULL;
 
-	xf86EnableAccess(xf86Screens[dev2screen[j]]);
 	if ((*xf86Screens[dev2screen[j]]->PreInit)(xf86Screens[dev2screen[j]], 
 						   PROBE_DETECT) &&
 	    ConfiguredMonitor) {

@@ -1,3 +1,4 @@
+
 /*
 
 Copyright 1993, 1998  The Open Group
@@ -63,12 +64,11 @@ typedef HRESULT (*SHGETFOLDERPATHPROC)(
  */
 
 extern int			g_iNumScreens;
-extern winScreenInfo		g_ScreenInfo[];
-extern int			g_iLastScreen;
+extern winScreenInfo *		g_ScreenInfo;
 extern char *			g_pszCommandLine;
 extern Bool			g_fSilentFatalError;
 
-extern char *			g_pszLogFile;
+extern const char *		g_pszLogFile;
 extern Bool			g_fLogFileChanged;
 extern int			g_iLogVerbose;
 Bool				g_fLogInited;
@@ -98,8 +98,8 @@ extern HMODULE			g_hmodCommonControls;
 extern FARPROC			g_fpTrackMouseEvent;
 extern Bool			g_fNoHelpMessageBox;                     
 extern Bool			g_fSilentDupError;                     
-  
-  
+extern Bool                     g_fNativeGl;
+
 /*
  * Function prototypes
  */
@@ -113,9 +113,6 @@ winClipboardShutdown (void);
 void
 OsVendorVErrorF (const char *pszFormat, va_list va_args);
 #endif
-
-void
-winInitializeDefaultScreens (void);
 
 static Bool
 winCheckDisplayNumber (void);
@@ -154,9 +151,7 @@ static PixmapFormatRec g_PixmapFormats[] = {
   { 15,   16,     BITMAP_SCANLINE_PAD },
   { 16,   16,     BITMAP_SCANLINE_PAD },
   { 24,   32,     BITMAP_SCANLINE_PAD },
-#ifdef RENDER
   { 32,   32,     BITMAP_SCANLINE_PAD }
-#endif
 };
 
 const int NUMFORMATS = sizeof (g_PixmapFormats) / sizeof (g_PixmapFormats[0]);
@@ -188,6 +183,17 @@ winClipboardShutdown (void)
 }
 #endif
 
+void
+ddxPushProviders(void)
+{
+#ifdef XWIN_GLX_WINDOWS
+  if (g_fNativeGl)
+    {
+      /* install the native GL provider */
+      glxWinPushNativeProvider();
+    }
+#endif
+}
 
 #if defined(DDXBEFORERESET)
 /*
@@ -243,7 +249,7 @@ ddxGiveUp (void)
 #endif
 
   if (!g_fLogInited) {
-    LogInit (g_pszLogFile, NULL);
+    g_pszLogFile = LogInit (g_pszLogFile, NULL);
     g_fLogInited = TRUE;
   }  
   LogClose ();
@@ -361,11 +367,11 @@ winCheckMount(void)
       continue;
     level = curlevel;
 
-    if ((winCheckMntOpt(ent, "binary") == NULL) ||
+    if ((winCheckMntOpt(ent, "binary") == NULL) &&
         (winCheckMntOpt(ent, "binmode") == NULL))
-      binary = 0;
+      binary = FALSE;
     else
-      binary = 1;
+      binary = TRUE;
   }
     
   if (endmntent(mnt) != 1)
@@ -688,9 +694,6 @@ OsVendorInit (void)
   /* Re-initialize global variables on server reset */
   winInitializeGlobals ();
 
-  LogInit (NULL, NULL);
-  LogSetParameter (XLOG_VERBOSITY, g_iLogVerbose);
-
   winFixupPaths();
 
 #ifdef DDXOSVERRORF
@@ -705,7 +708,7 @@ OsVendorInit (void)
      * avoid the second call 
      */  
     g_fLogInited = TRUE;
-    LogInit (g_pszLogFile, NULL);
+    g_pszLogFile = LogInit (g_pszLogFile, NULL);
   } 
   LogSetParameter (XLOG_FLUSH, 1);
   LogSetParameter (XLOG_VERBOSITY, g_iLogVerbose);
@@ -720,22 +723,16 @@ OsVendorInit (void)
   /* Add a default screen if no screens were specified */
   if (g_iNumScreens == 0)
     {
-      winDebug ("OsVendorInit - Creating bogus screen 0\n");
-
-      /* 
-       * We need to initialize default screens if no arguments
-       * were processed.  Otherwise, the default screens would
-       * already have been initialized by ddxProcessArgument ().
-       */
-      winInitializeDefaultScreens ();
+      winDebug ("OsVendorInit - Creating default screen 0\n");
 
       /*
-       * Add a screen 0 using the defaults set by 
-       * winInitializeDefaultScreens () and any additional parameters
-       * processed by ddxProcessArgument ().
+       * We need to initialize the default screen 0 if no -screen
+       * arguments were processed.
+       *
+       * Add a screen 0 using the defaults set by winInitializeDefaultScreens()
+       * and any additional default screen parameters given
        */
-      g_iNumScreens = 1;
-      g_iLastScreen = 0;
+      winInitializeScreens(1);
 
       /* We have to flag this as an explicit screen, even though it isn't */
       g_ScreenInfo[0].fExplicitScreen = TRUE;
@@ -894,6 +891,11 @@ winUseMsg (void)
   ErrorF ("-[no]unixkill\n"
           "\tCtrl+Alt+Backspace exits the X Server.\n");
 
+#ifdef XWIN_GLX_WINDOWS
+  ErrorF ("-[no]wgl\n"
+	  "\tEnable the GLX extension to use the native Windows WGL interface for accelerated OpenGL\n");
+#endif
+
   ErrorF ("-[no]winkill\n"
           "\tAlt+F4 exits the X Server.\n");
 
@@ -926,7 +928,7 @@ ddxUseMsg(void)
 
   /* Log file will not be opened for UseMsg unless we open it now */
   if (!g_fLogInited) {
-    LogInit (g_pszLogFile, NULL);
+    g_pszLogFile = LogInit (g_pszLogFile, NULL);
     g_fLogInited = TRUE;
   }  
   LogClose ();
@@ -934,9 +936,9 @@ ddxUseMsg(void)
   /* Notify user where UseMsg text can be found.*/
   if (!g_fNoHelpMessageBox)
     winMessageBoxF ("The " PROJECT_NAME " help text has been printed to "
-		  "/tmp/XWin.log.\n"
-		  "Please open /tmp/XWin.log to read the help text.\n",
-		  MB_ICONINFORMATION);
+		  "%s.\n"
+		  "Please open %s to read the help text.\n",
+		  MB_ICONINFORMATION, g_pszLogFile, g_pszLogFile);
 }
 
 /* See Porting Layer Definition - p. 20 */

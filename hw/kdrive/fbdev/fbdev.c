@@ -84,13 +84,13 @@ fbdevCardInit (KdCardInfo *card)
 {
     FbdevPriv	*priv;
 
-    priv = (FbdevPriv *) xalloc (sizeof (FbdevPriv));
+    priv = (FbdevPriv *) malloc(sizeof (FbdevPriv));
     if (!priv)
 	return FALSE;
 
     if (!fbdevInitialize (card, priv))
     {
-	xfree (priv);
+	free(priv);
 	return FALSE;
     }
     card->driver = priv;
@@ -291,14 +291,14 @@ fbdevScreenInit (KdScreenInfo *screen)
 {
     FbdevScrPriv *scrpriv;
 
-    scrpriv = xcalloc (1, sizeof (FbdevScrPriv));
+    scrpriv = calloc(1, sizeof (FbdevScrPriv));
     if (!scrpriv)
 	return FALSE;
     screen->driver = scrpriv;
     if (!fbdevScreenInitialize (screen, scrpriv))
     {
 	screen->driver = 0;
-	xfree (scrpriv);
+	free(scrpriv);
 	return FALSE;
     }
     return TRUE;
@@ -589,7 +589,7 @@ fbdevCreateColormap (ColormapPtr pmap)
     case FB_VISUAL_STATIC_PSEUDOCOLOR:
 	pVisual = pmap->pVisual;
 	nent = pVisual->ColormapEntries;
-	pdefs = xalloc (nent * sizeof (xColorItem));
+	pdefs = malloc(nent * sizeof (xColorItem));
 	if (!pdefs)
 	    return FALSE;
 	for (i = 0; i < nent; i++)
@@ -601,7 +601,7 @@ fbdevCreateColormap (ColormapPtr pmap)
 	    pmap->red[i].co.local.green = pdefs[i].green;
 	    pmap->red[i].co.local.blue = pdefs[i].blue;
 	}
-	xfree (pdefs);
+	free(pdefs);
 	return TRUE;
     default:
 	return fbInitializeColormap (pmap);
@@ -744,7 +744,7 @@ fbdevCardFini (KdCardInfo *card)
 
     munmap (priv->fb_base, priv->fix.smem_len);
     close (priv->fd);
-    xfree (priv);
+    free(priv);
 }
 
 /*

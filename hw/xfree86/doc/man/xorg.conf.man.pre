@@ -102,19 +102,51 @@ is the machine's hostname as reported by
 .BR gethostname (__libmansuffix__).
 .PP
 Additional configuration files are searched for in the following
-directories:
+directories when the server is started as a normal user:
 .PP
 .RS 4
 .nf
-.I /etc/X11/__xconfigdir__\-4
+.IR /etc/X11/ <cmdline>
+.IR __sysconfdir__/X11/ <cmdline>
 .I /etc/X11/__xconfigdir__
-.I /etc/__xconfigdir__
-.IR __projectroot__/etc/X11/__xconfigdir__. <hostname>
-.I __projectroot__/etc/X11/__xconfigdir__\-4
-.I __projectroot__/etc/X11/__xconfigdir__
-.IR __projectroot__/lib/X11/__xconfigdir__. <hostname>
-.I __projectroot__/lib/X11/__xconfigdir__\-4
-.I __projectroot__/lib/X11/__xconfigdir__
+.I __sysconfdir__/X11/__xconfigdir__
+.fi
+.RE
+.PP
+where
+.I <cmdline>
+is a relative path (with no \(lq..\(rq components) specified with the
+.B \-configdir
+command line option.
+.PP
+When the __xservername__ server is started by the \(lqroot\(rq user, the
+config directory search locations are as follows:
+.PP
+.RS 4
+.nf
+<cmdline>
+.IR /etc/X11/ <cmdline>
+.IR __sysconfdir__/X11/ <cmdline>
+.I /etc/X11/__xconfigdir__
+.I __sysconfdir__/X11/__xconfigdir__
+.fi
+.RE
+.PP
+where
+.I <cmdline>
+is the path specified with the
+.B \-configdir
+command line option (which may be absolute or relative).
+.PP
+Finally, configuration files will also be searched for in directories
+reserved for system use. These are to separate configuration files from
+the vendor or 3rd party packages from those of local administration.
+These files are found in the following directories:
+.PP
+.RS 4
+.nf
+.I /usr/share/X11/__xconfigdir__
+.I __datadir__/X11/__xconfigdir__
 .fi
 .RE
 .PP
@@ -1033,35 +1065,85 @@ of the class. If none of the optional entries appear, the
 .B InputClass
 section is generic and will match any input device. If more than one of
 these entries appear, they all must match for the configuration to apply.
-The allowed matching entries are shown below.
 .PP
+There are two types of match entries used in
+.B InputClass
+sections. The first allows various tokens to be matched against attributes
+of the device. An entry can be constructed to match attributes from different
+devices by separating arguments with a '|' character. Multiple entries of the
+same type may be supplied to add multiple matching conditions on the same
+attribute. For example:
+.PP
+.RS 4
+.nf
+.B  "Section \*qInputClass\*q"
+.B  "    Identifier   \*qMy Class\*q"
+.B  "    # product string must contain example and
+.B  "    # either gizmo or gadget
+.B  "    MatchProduct \*qexample\*q
+.B  "    MatchProduct \*qgizmo|gadget\*q
+.I  "    ..."
+.B  "EndSection"
+.fi
+.RE
 .TP 7
 .BI "MatchProduct  \*q" matchproduct \*q
 This entry can be used to check if the substring
 .RI \*q matchproduct \*q
-occurs in the device's product name. Multiple substrings can be matched by
-separating arguments with a '|' character.
+occurs in the device's product name.
 .TP 7
 .BI "MatchVendor  \*q" matchvendor \*q
 This entry can be used to check if the substring
 .RI \*q matchvendor \*q
-occurs in the device's vendor name. Multiple substrings can be matched by
-separating arguments with a '|' character.
+occurs in the device's vendor name.
 .TP 7
 .BI "MatchDevicePath \*q" matchdevice \*q
 This entry can be used to check if the device file matches the
 .RI \*q matchdevice \*q
-pathname pattern. Multiple patterns can be matched by separating arguments
-with a '|' character.
+pathname pattern.
+.TP 7
+.BI "MatchOS \*q" matchos \*q
+This entry can be used to check if the operating system matches the
+case-insensitive
+.RI \*q matchos \*q
+string. This entry is only supported on platforms providing the
+.BR uname (2)
+system call.
+.TP 7
+.BI "MatchPnPID \*q" matchpnp \*q
+The device's Plug and Play (PnP) ID can be checked against the
+.RI \*q matchpnp \*q
+shell wildcard pattern.
+.TP 7
+.BI "MatchUSBID \*q" matchusb \*q
+The device's USB ID can be checked against the
+.RI \*q matchusb \*q
+shell wildcard pattern. The ID is constructed as lowercase hexadecimal numbers
+separated by a ':'. This is the same format as the
+.BR lsusb (8)
+program.
+.TP 7
+.BI "MatchDriver \*q" matchdriver \*q
+Check the case-sensitive string
+.RI \*q matchdriver \*q
+against the currently configured driver of the device. Ordering of sections
+using this entry is important since it will not match unless the driver has
+been set by the config backend or a previous
+.B InputClass
+section.
 .TP 7
 .BI "MatchTag \*q" matchtag \*q
 This entry can be used to check if tags assigned by the config backend
 matches the
 .RI \*q matchtag \*q
-pattern.  Multiple patterns can be matched by separating arguments
-with a '|' character. A match is found if at least one of the tags given in
+pattern. A match is found if at least one of the tags given in
 .RI \*q matchtag \*q
 matches at least one of the tags assigned by the backend.
+.PP
+The second type of entry is used to match device types. These entries take a
+boolean argument similar to
+.B Option
+entries.
 .TP 7
 .BI "MatchIsKeyboard     \*q" bool \*q
 .TP 7
@@ -1074,9 +1156,6 @@ matches at least one of the tags assigned by the backend.
 .BI "MatchIsTouchpad     \*q" bool \*q
 .TP 7
 .BI "MatchIsTouchscreen  \*q" bool \*q
-Match device types. These entries take a boolean argument similar to
-.B Option
-entries.
 .PP
 When an input device has been matched to the
 .B InputClass
@@ -1620,6 +1699,14 @@ output (not monitor) of the given name.
 This optional entry specifies whether the monitor should be turned on
 at startup.  By default, the server will attempt to enable all connected
 monitors.
+(RandR 1.2-supporting drivers only)
+.TP 7
+.BI "Option " "\*qDefaultModes\*q  " \*qbool\*q
+This optional entry specifies whether the server should add supported default
+modes to the list of modes offered on this monitor. By default, the server
+will add default modes; you should only disable this if you can guarantee
+that EDID will be available at all times, or if you have added custom modelines
+which the server can use.
 (RandR 1.2-supporting drivers only)
 .TP 7
 .BI "Option " "\*qMinClock\*q  " \*qfrequency\*q
@@ -2302,8 +2389,7 @@ section for a dual headed configuration with two mice:
 .SH "DRI SECTION"
 This optional section is used to provide some information for the
 Direct Rendering Infrastructure.
-Details about the format of this section
-can be found in the README.DRI document, which is also available on-line at
+Details about the format of this section can be found on-line at
 .IR <http://dri.freedesktop.org/> .
 .SH "VENDOR SECTION"
 The optional
@@ -2373,25 +2459,16 @@ Display drivers:
 .PP
 Input drivers:
 .BR acecad (__drivermansuffix__),
-.BR calcomp (__drivermansuffix__),
 .BR citron (__drivermansuffix__),
-.BR dmc (__drivermansuffix__),
-.BR dynapro (__drivermansuffix__),
 .BR elographics (__drivermansuffix__),
 .BR evdev (__drivermansuffix__),
 .BR fpit (__drivermansuffix__),
-.BR js_x (__drivermansuffix__),
 .BR joystick (__drivermansuffix__),
 .BR kbd (__drivermansuffix__),
-.BR magictouch (__drivermansuffix__),
-.BR microtouch (__drivermansuffix__),
 .BR mousedrv (__drivermansuffix__),
 .BR mutouch (__drivermansuffix__),
-.BR palmax (__drivermansuffix__),
 .BR penmount (__drivermansuffix__),
 .BR synaptics (__drivermansuffix__),
-.BR tek4957 (__drivermansuffix__),
-.BR ur98 (__drivermansuffix__),
 .BR vmmouse (__drivermansuffix__),
 .BR void (__drivermansuffix__),
 .BR wacom (__drivermansuffix__).
