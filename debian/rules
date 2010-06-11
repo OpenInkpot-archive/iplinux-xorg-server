@@ -81,6 +81,7 @@ confflags += \
 	--disable-xsdl \
 	--disable-xfake \
 	--disable-kdrive-vesa \
+	--enable-kdrive-evdev \
 	--disable-kdrive-kbd \
 	--disable-kdrive-mouse \
 	--with-os-vendor="$(VENDOR)" \
