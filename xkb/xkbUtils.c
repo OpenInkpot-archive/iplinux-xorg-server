@@ -1761,15 +1761,15 @@ _XkbCopyGeom(XkbDescPtr src, XkbDescPtr dst)
                     if (sdoodad->any.type == XkbTextDoodad) {
                         if (sdoodad->text.text)
                             ddoodad->text.text =
-                             xstrdup(sdoodad->text.text);
+                             strdup(sdoodad->text.text);
                         if (sdoodad->text.font)
                             ddoodad->text.font =
-                             xstrdup(sdoodad->text.font);
+                             strdup(sdoodad->text.font);
                     }
                     else if (sdoodad->any.type == XkbLogoDoodad) {
                         if (sdoodad->logo.logo_name)
                             ddoodad->logo.logo_name =
-                             xstrdup(sdoodad->logo.logo_name);
+                             strdup(sdoodad->logo.logo_name);
                     }
                 }
                 dsection->overlays = NULL;
@@ -1832,14 +1832,14 @@ _XkbCopyGeom(XkbDescPtr src, XkbDescPtr dst)
                 memcpy(ddoodad , sdoodad, sizeof(XkbDoodadRec));
                 if (sdoodad->any.type == XkbTextDoodad) {
                     if (sdoodad->text.text)
-                        ddoodad->text.text = xstrdup(sdoodad->text.text);
+                        ddoodad->text.text = strdup(sdoodad->text.text);
                     if (sdoodad->text.font)
-                        ddoodad->text.font = xstrdup(sdoodad->text.font);
+                        ddoodad->text.font = strdup(sdoodad->text.font);
                 }
                 else if (sdoodad->any.type == XkbLogoDoodad) {
                     if (sdoodad->logo.logo_name)
                         ddoodad->logo.logo_name =
-                          xstrdup(sdoodad->logo.logo_name);
+                          strdup(sdoodad->logo.logo_name);
                 }
             }
 
@@ -2093,4 +2093,30 @@ XkbGetEffectiveGroup(XkbSrvInfoPtr xkbi, XkbStatePtr xkbState, CARD8 keycode)
     else effectiveGroup = XkbGroup1Index;
 
     return effectiveGroup;
+}
+
+/* Merge the lockedPtrButtons from all attached SDs for the given master
+ * device into the MD's state.
+ */
+void
+XkbMergeLockedPtrBtns(DeviceIntPtr master)
+{
+    DeviceIntPtr d = inputInfo.devices;
+    XkbSrvInfoPtr xkbi = NULL;
+
+    if (!IsMaster(master))
+        return;
+
+    if (!master->key)
+        return;
+
+    xkbi = master->key->xkbInfo;
+    xkbi->lockedPtrButtons = 0;
+
+    for (; d; d = d->next) {
+        if (IsMaster(d) || GetMaster(d, MASTER_KEYBOARD) != master || !d->key)
+            continue;
+
+        xkbi->lockedPtrButtons |= d->key->xkbInfo->lockedPtrButtons;
+    }
 }

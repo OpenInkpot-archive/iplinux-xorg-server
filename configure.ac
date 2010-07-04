@@ -26,8 +26,8 @@ dnl
 dnl Process this file with autoconf to create configure.
 
 AC_PREREQ(2.57)
-AC_INIT([xorg-server], 1.8.99.0, [https://bugs.freedesktop.org/enter_bug.cgi?product=xorg], xorg-server)
-RELEASE_DATE="unreleased"
+AC_INIT([xorg-server], 1.8.99.904, [https://bugs.freedesktop.org/enter_bug.cgi?product=xorg], xorg-server)
+RELEASE_DATE="2010-07-01"
 AC_CONFIG_SRCDIR([Makefile.am])
 AM_INIT_AUTOMAKE([foreign dist-bzip2])
 AM_MAINTAINER_MODE
@@ -794,8 +794,9 @@ WINDOWSWMPROTO="windowswmproto"
 APPLEWMPROTO="applewmproto >= 1.4"
 
 dnl Core modules for most extensions, et al.
-REQUIRED_MODULES="[randrproto >= 1.2.99.3] [renderproto >= 0.11] [fixesproto >= 4.1] [damageproto >= 1.1] [xcmiscproto >= 1.2.0] [xextproto >= 7.0.99.3] [xproto >= 7.0.17] [xtrans >= 1.2.2] [bigreqsproto >= 1.1.0] fontsproto [inputproto >= 1.9.99.902] [kbproto >= 1.0.3]"
-REQUIRED_LIBS="xfont xau"
+SDK_REQUIRED_MODULES="[xproto >= 7.0.17] [randrproto >= 1.2.99.3] [renderproto >= 0.11] [xextproto >= 7.0.99.3] [inputproto >= 1.9.99.902] [kbproto >= 1.0.3] fontsproto"
+# Make SDK_REQUIRED_MODULES available for inclusion in xorg-server.pc
+AC_SUBST(SDK_REQUIRED_MODULES)
 
 dnl List of libraries that require a specific version
 LIBAPPLEWM="applewm >= 1.4"
@@ -804,6 +805,7 @@ LIBDRI="dri >= 7.8.0"
 LIBDRM="libdrm >= 2.3.0"
 LIBGL="gl >= 7.1.0"
 LIBXEXT="xext >= 1.0.99.4"
+LIBXFONT="xfont >= 1.4.2"
 LIBXI="xi >= 1.2.99.1"
 LIBXTST="xtst >= 1.0.99.2"
 LIBPCIACCESS="pciaccess >= 0.8.0"
@@ -816,7 +818,9 @@ LIBPIXMAN="pixman-1 >= 0.15.20"
 dnl Pixman is always required, but we separate it out so we can link
 dnl specific modules against it
 PKG_CHECK_MODULES(PIXMAN, $LIBPIXMAN)
-REQUIRED_LIBS="$REQUIRED_LIBS $LIBPIXMAN"
+REQUIRED_LIBS="$REQUIRED_LIBS $LIBPIXMAN $LIBXFONT xau"
+
+REQUIRED_MODULES="[fixesproto >= 4.1] [damageproto >= 1.1] [xcmiscproto >= 1.2.0] [xtrans >= 1.2.2] [bigreqsproto >= 1.1.0] $SDK_REQUIRED_MODULES"
 
 if test "x$CONFIG_UDEV" = xyes &&
  { test "x$CONFIG_DBUS_API" = xyes || test "x$CONFIG_HAL" = xyes; }; then
@@ -948,6 +952,7 @@ if test "x$XV" = xyes; then
 	AC_DEFINE(XV, 1, [Support Xv extension])
 	AC_DEFINE(XvExtension, 1, [Build Xv extension])
 	REQUIRED_MODULES="$REQUIRED_MODULES $VIDEOPROTO"
+	SDK_REQUIRED_MODULES="$SDK_REQUIRED_MODULES $VIDEOPROTO"
 else
 	XVMC=no
 fi
@@ -1037,6 +1042,7 @@ case "$DRI2,$HAVE_DRI2PROTO" in
 	yes,yes | auto,yes)
 		AC_DEFINE(DRI2, 1, [Build DRI2 extension])
 		DRI2=yes
+		SDK_REQUIRED_MODULES="$SDK_REQUIRED_MODULES $DRI2PROTO"
 		;;
 esac
 AM_CONDITIONAL(DRI2, test "x$DRI2" = xyes)
@@ -1075,6 +1081,7 @@ if test "x$XINERAMA" = xyes; then
 	AC_DEFINE(XINERAMA, 1, [Support Xinerama extension])
 	AC_DEFINE(PANORAMIX, 1, [Internal define for Xinerama])
 	REQUIRED_MODULES="$REQUIRED_MODULES $XINERAMAPROTO"
+	SDK_REQUIRED_MODULES="$SDK_REQUIRED_MODULES $XINERAMAPROTO"
 fi
 
 AM_CONDITIONAL(XACE, [test "x$XACE" = xyes])
@@ -1510,7 +1517,7 @@ fi
 
 dnl Xnest DDX
 
-PKG_CHECK_MODULES(XNESTMODULES, [xfont $LIBXEXT x11 xau $XDMCP_MODULES], [have_xnest=yes], [have_xnest=no])
+PKG_CHECK_MODULES(XNESTMODULES, [$LIBXEXT x11 xau $XDMCP_MODULES], [have_xnest=yes], [have_xnest=no])
 AC_MSG_CHECKING([whether to build Xnest DDX])
 if test "x$XNEST" = xauto; then
 	XNEST="$have_xnest"
@@ -1862,7 +1869,7 @@ if test "x$XWIN" = xyes; then
 	AC_DEFINE_UNQUOTED(__VENDORDWEBSUPPORT__, ["$VENDOR_WEB"], [Vendor web address for support])
 	AC_CHECK_TOOL(WINDRES, windres)
 
-	PKG_CHECK_MODULES([XWINMODULES],[x11 xdmcp xau xfont])
+	PKG_CHECK_MODULES([XWINMODULES],[x11 xdmcp xau])
 
 	if test "x$WINDOWSWM" = xauto; then
 		PKG_CHECK_EXISTS($WINDOWSWMPROTO, [WINDOWSWM=yes], [WINDOWSWM=no])
@@ -1951,7 +1958,7 @@ AM_CONDITIONAL(STANDALONE_XPBPROXY, [test "x$STANDALONE_XPBPROXY" = xyes])
 dnl DMX DDX
 PKG_CHECK_MODULES(
 	[DMXMODULES],
-	[xmuu $LIBXEXT x11 xrender xfixes xfont $LIBXI $DMXPROTO xau $XDMCP_MODULES],
+	[xmuu $LIBXEXT x11 xrender xfixes $LIBXI $DMXPROTO xau $XDMCP_MODULES],
 	[PKG_CHECK_MODULES(
 		[XDMXCONFIG_DEP],
 		[xaw7 xmu xt xpm x11],
@@ -2056,7 +2063,7 @@ if test "$KDRIVE" = yes; then
        AC_DEFINE(KDRIVE_MOUSE, 1, [Enable KDrive mouse driver])
     fi
 
-    XEPHYR_REQUIRED_LIBS="x11 $LIBXEXT xfont xau xdmcp"
+    XEPHYR_REQUIRED_LIBS="x11 $LIBXEXT xau xdmcp"
     if test "x$XV" = xyes; then
         XEPHYR_REQUIRED_LIBS="$XEPHYR_REQUIRED_LIBS xv"
     fi
@@ -2067,6 +2074,9 @@ if test "$KDRIVE" = yes; then
     PKG_CHECK_MODULES(XEPHYR, $XEPHYR_REQUIRED_LIBS, [xephyr="yes"], [xephyr="no"])
     if test "x$XEPHYR" = xauto; then
         XEPHYR=$xephyr
+    fi
+    if test "x$XEPHYR" = xyes && test "x$xephyr" = xno; then	
+        AC_MSG_ERROR([Xephyr dependencies missing])
     fi
 
     # Xephyr needs nanosleep() which is in librt on Solaris
