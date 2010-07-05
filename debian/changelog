@@ -1,3 +1,9 @@
+xorg-server (2:1.8.99.904-2) zelazny; urgency=low
+
+  * Implement -norootcursor option.
+
+ -- Mikhail Gusarov <dottedmag@dottedmag.net>  Mon, 05 Jul 2010 14:09:23 +0700
+
 xorg-server (2:1.8.99.904-1) zelazny; urgency=low
 
   * New upstrteam version (1.9-rc4):
