@@ -120,6 +120,8 @@ extern void Dispatch(void);
 
 extern void InitProcVectors(void);
 
+Bool EnableRootCursor = TRUE;
+
 #ifdef XQUARTZ
 #include <pthread.h>
 
@@ -236,10 +238,12 @@ int main(int argc, char *argv[], char *envp[])
 	    FatalError("could not open default font '%s'", defaultTextFont);
 	}
 
-	if (!(rootCursor = CreateRootCursor(NULL, 0))) {
-	    FatalError("could not open default cursor font '%s'",
-		       defaultCursorFont);
-	}
+        if (EnableRootCursor) {
+            if (!(rootCursor = CreateRootCursor(NULL, 0))) {
+                FatalError("could not open default cursor font '%s'",
+                           defaultCursorFont);
+            }
+        }
 
 #ifdef DPMSExtension
  	/* check all screens, looking for DPMS Capabilities */

@@ -474,6 +474,7 @@ void UseMsg(void)
     ErrorF("c #                    key-click volume (0-100)\n");
     ErrorF("-cc int                default color visual class\n");
     ErrorF("-nocursor              disable the cursor\n");
+    ErrorF("-norootcursor          disable the root cursor only\n");
     ErrorF("-core                  generate core dump on fatal error\n");
     ErrorF("-dpi int               screen resolution in dots per inch\n");
 #ifdef DPMSExtension
@@ -553,6 +554,8 @@ VerifyDisplayName(const char *d)
     if ( strchr(d, '/') != (char *)0 ) return 0;  /*  very important!!!  */
     return 1;
 }
+
+extern Bool EnableRootCursor;
 
 /*
  * This function parses the command line. Handles device-independent fields
@@ -651,6 +654,10 @@ ProcessCommandLine(int argc, char *argv[])
         else if ( strcmp( argv[i], "-nocursor") == 0)
         {
             EnableCursor = FALSE;
+        }
+        else if ( strcmp( argv[i], "-norootcursor") == 0)
+        {
+            EnableRootCursor = FALSE;
         }
         else if ( strcmp( argv[i], "-dpi") == 0)
 	{
