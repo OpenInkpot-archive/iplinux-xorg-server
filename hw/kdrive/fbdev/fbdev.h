@@ -35,9 +35,6 @@
 typedef struct _fbdevPriv {
     struct fb_var_screeninfo	var;
     struct fb_fix_screeninfo	fix;
-    __u16			red[256];
-    __u16			green[256];
-    __u16			blue[256];
     int				fd;
     char			*fb;
     char			*fb_base;

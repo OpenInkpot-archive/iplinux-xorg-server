@@ -646,15 +646,16 @@ fbdevPreserve (KdCardInfo *card)
 }
 
 static int
-fbdevUpdateFbColormap(FbdevPriv *priv, int minidx, int maxidx)
+fbdevUpdateFbColormap(FbdevPriv *priv, __u16 *red, __u16 *green, __u16 *blue,
+                      int minidx, int maxidx)
 {
     struct fb_cmap cmap;
 
     cmap.start = minidx;
     cmap.len = maxidx - minidx + 1;
-    cmap.red = &priv->red[minidx];
-    cmap.green = &priv->green[minidx];
-    cmap.blue = &priv->blue[minidx];
+    cmap.red = &red[minidx];
+    cmap.green = &green[minidx];
+    cmap.blue = &blue[minidx];
     cmap.transp = 0;
 
     return ioctl(priv->fd, FBIOPUTCMAP, &cmap);
@@ -681,17 +682,21 @@ fbdevEnable (ScreenPtr pScreen)
     {
 	int		i;
 
+        __u16 red[256];
+        __u16 green[256];
+        __u16 blue[256];
+
 	for (i = 0;
 	     i < (1 << priv->var.red.length) ||
 	     i < (1 << priv->var.green.length) ||
 	     i < (1 << priv->var.blue.length); i++)
 	{
-	    priv->red[i] = i * 65535 / ((1 << priv->var.red.length) - 1);
-	    priv->green[i] = i * 65535 / ((1 << priv->var.green.length) - 1);
-	    priv->blue[i] = i * 65535 / ((1 << priv->var.blue.length) - 1);
+	    red[i] = i * 65535 / ((1 << priv->var.red.length) - 1);
+	    green[i] = i * 65535 / ((1 << priv->var.green.length) - 1);
+	    blue[i] = i * 65535 / ((1 << priv->var.blue.length) - 1);
 	}
 
-	fbdevUpdateFbColormap(priv, 0, i);
+	fbdevUpdateFbColormap(priv, red, green, blue, 0, i);
     }
     return TRUE;
 }
@@ -760,6 +765,10 @@ fbdevGetColors (ScreenPtr pScreen, int n, xColorItem *pdefs)
     int		    k;
     int		    min, max;
 
+    __u16 red[256];
+    __u16 green[256];
+    __u16 blue[256];
+
     min = 256;
     max = 0;
     for (k = 0; k < n; k++)
@@ -771,9 +780,9 @@ fbdevGetColors (ScreenPtr pScreen, int n, xColorItem *pdefs)
     }
     cmap.start = min;
     cmap.len = max - min + 1;
-    cmap.red = &priv->red[min];
-    cmap.green = &priv->green[min];
-    cmap.blue = &priv->blue[min];
+    cmap.red = red;
+    cmap.green = green;
+    cmap.blue = blue;
     cmap.transp = 0;
     k = ioctl (priv->fd, FBIOGETCMAP, &cmap);
     if (k < 0)
@@ -784,9 +793,9 @@ fbdevGetColors (ScreenPtr pScreen, int n, xColorItem *pdefs)
     while (n--)
     {
 	p = pdefs->pixel;
-	pdefs->red = priv->red[p];
-	pdefs->green = priv->green[p];
-	pdefs->blue = priv->blue[p];
+	pdefs->red = red[p - min];
+	pdefs->green = green[p - min];
+	pdefs->blue = blue[p - min];
 	pdefs++;
     }
 }
@@ -802,14 +811,18 @@ fbdevPutColors (ScreenPtr pScreen, int n, xColorItem *pdefs)
     int		    p;
     int		    min, max;
 
+    __u16 red[256];
+    __u16 green[256];
+    __u16 blue[256];
+
     min = 256;
     max = 0;
     while (n--)
     {
 	p = pdefs->pixel;
-	priv->red[p] = pdefs->red;
-	priv->green[p] = pdefs->green;
-	priv->blue[p] = pdefs->blue;
+	red[p] = pdefs->red;
+	green[p] = pdefs->green;
+	blue[p] = pdefs->blue;
 	if (p < min)
 	    min = p;
 	if (p > max)
@@ -817,5 +830,5 @@ fbdevPutColors (ScreenPtr pScreen, int n, xColorItem *pdefs)
 	pdefs++;
     }
 
-    fbdevUpdateFbColormap(priv, min, max);
+    fbdevUpdateFbColormap(priv, red, green, blue, min, max);
 }
