@@ -783,19 +783,34 @@ fbdevGetColors (ScreenPtr pScreen, int n, xColorItem *pdefs)
     cmap.green = green;
     cmap.blue = blue;
     cmap.transp = 0;
+
     k = ioctl (priv->fd, FBIOGETCMAP, &cmap);
     if (k < 0)
     {
 	perror ("can't get colormap");
 	return;
     }
-    while (n--)
-    {
-	p = pdefs->pixel;
-	pdefs->red = red[p - min];
-	pdefs->green = green[p - min];
-	pdefs->blue = blue[p - min];
-	pdefs++;
+
+    /*
+     * FIXME: we are assuming that pixel values start from
+     * zero. priv->var.red.offset need to be checked to handle other cases.
+     */
+
+    int palette_length = 1 << priv->var.red.length;
+
+    for (k = 0; k < n; k++) {
+        unsigned pixelvalue = pdefs[k].pixel;
+
+        if (pixelvalue < palette_length) {
+            pdefs[k].red = cmap.red[pixelvalue - min];
+            pdefs[k].green = cmap.green[pixelvalue - min];
+            pdefs[k].blue = cmap.blue[pixelvalue - min];
+        } else {
+            /* Let unused palette entries be the copies of first pixel */
+            pdefs[k].red = cmap.red[0];
+            pdefs[k].green = cmap.green[0];
+            pdefs[k].blue = cmap.blue[0];
+        }
     }
 }
 
