@@ -761,7 +761,6 @@ fbdevGetColors (ScreenPtr pScreen, int n, xColorItem *pdefs)
     KdScreenPriv(pScreen);
     FbdevPriv	    *priv = pScreenPriv->card->driver;
     struct fb_cmap  cmap;
-    int		    p;
     int		    k;
     int		    min, max;
 
