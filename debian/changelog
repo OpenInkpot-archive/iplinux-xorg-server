@@ -1,3 +1,9 @@
+xorg-server (2:1.8.99.904-3) zelazny; urgency=low
+
+  * Fix fetching palette in Xfbdev.
+
+ -- Mikhail Gusarov <dottedmag@dottedmag.net>  Sat, 17 Jul 2010 17:08:31 +0700
+
 xorg-server (2:1.8.99.904-2) zelazny; urgency=low
 
   * Implement -norootcursor option.
