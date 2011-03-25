@@ -56,7 +56,6 @@
 #include "glxutil.h"
 #include "glxdricommon.h"
 
-#include "g_disptab.h"
 #include "glapitable.h"
 #include "glapi.h"
 #include "glthread.h"
@@ -834,9 +833,7 @@ static void __glXReportDamage(__DRIdrawable *driDraw,
 
     RegionInit(&region, (BoxPtr) rects, num_rects);
     RegionTranslate(&region, pDraw->x, pDraw->y);
-    DamageRegionAppend(pDraw, &region);
-    /* This is wrong, this needs a seperate function. */
-    DamageRegionProcessPending(pDraw);
+    DamageDamageRegion(pDraw, &region);
     RegionUninit(&region);
 
     __glXleaveServer(GL_FALSE);
@@ -861,17 +858,24 @@ static const __DRIextension *loader_extensions[] = {
 
 
 
-static const char dri_driver_path[] = DRI_DRIVER_PATH;
-
 static Bool
 glxDRIEnterVT (int index, int flags)
 {
+    ScrnInfoPtr scrn = xf86Screens[index];
+    Bool	ret;
     __GLXDRIscreen *screen = (__GLXDRIscreen *) 
 	glxGetScreen(screenInfo.screens[index]);
 
     LogMessage(X_INFO, "AIGLX: Resuming AIGLX clients after VT switch\n");
 
-    if (!(*screen->enterVT) (index, flags))
+    scrn->EnterVT = screen->enterVT;
+
+    ret = scrn->EnterVT (index, flags);
+
+    screen->enterVT = scrn->EnterVT;
+    scrn->EnterVT = glxDRIEnterVT;
+
+    if (!ret)
 	return FALSE;
     
     glxResumeClients();
@@ -882,6 +886,7 @@ glxDRIEnterVT (int index, int flags)
 static void
 glxDRILeaveVT (int index, int flags)
 {
+    ScrnInfoPtr scrn = xf86Screens[index];
     __GLXDRIscreen *screen = (__GLXDRIscreen *)
 	glxGetScreen(screenInfo.screens[index]);
 
@@ -889,7 +894,10 @@ glxDRILeaveVT (int index, int flags)
 
     glxSuspendClients();
 
-    return (*screen->leaveVT) (index, flags);
+    scrn->LeaveVT = screen->leaveVT;
+    (*screen->leaveVT) (index, flags);
+    screen->leaveVT = scrn->LeaveVT;
+    scrn->LeaveVT = glxDRILeaveVT;
 }
 
 static void
@@ -961,13 +969,10 @@ __glXDRIscreenProbe(ScreenPtr pScreen)
     drm_handle_t  hFB;
     int        junk;
     __GLXDRIscreen *screen;
-    char filename[128];
     Bool isCapable;
     size_t buffer_size;
     ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
     const __DRIconfig **driConfigs;
-    const __DRIextension **extensions;
-    int i;
 
     if (!xf86LoaderCheckSymbol("DRIQueryDirectRenderingCapable") ||
 	!DRIQueryDirectRenderingCapable(pScreen, &isCapable) ||
@@ -1042,42 +1047,15 @@ __glXDRIscreenProbe(ScreenPtr pScreen)
 	goto handle_error;
     }
 
-    snprintf(filename, sizeof filename, "%s/%s_dri.so",
-             dri_driver_path, driverName);
-
-    screen->driver = dlopen(filename, RTLD_LAZY | RTLD_LOCAL);
+    screen->driver = glxProbeDriver(driverName,
+				    (void **)&screen->core,
+				    __DRI_CORE, __DRI_CORE_VERSION,
+				    (void **)&screen->legacy,
+				    __DRI_LEGACY, __DRI_LEGACY_VERSION);
     if (screen->driver == NULL) {
-	LogMessage(X_ERROR, "AIGLX error: dlopen of %s failed (%s)\n",
-		   filename, dlerror());
         goto handle_error;
     }
-
-    extensions = dlsym(screen->driver, __DRI_DRIVER_EXTENSIONS);
-    if (extensions == NULL) {
-	LogMessage(X_ERROR, "AIGLX error: %s exports no extensions (%s)\n",
-		   driverName, dlerror());
-	goto handle_error;
-    }
     
-    for (i = 0; extensions[i]; i++) {
-	if (strcmp(extensions[i]->name, __DRI_CORE) == 0 &&
-	    extensions[i]->version >= __DRI_CORE_VERSION) {
-		screen->core = (__DRIcoreExtension *) extensions[i];
-	}
-
-	if (strcmp(extensions[i]->name, __DRI_LEGACY) == 0 &&
-	    extensions[i]->version >= __DRI_LEGACY_VERSION) {
-		screen->legacy = (__DRIlegacyExtension *) extensions[i];
-	}
-    }
-
-    if (screen->core == NULL || screen->legacy == NULL) {
-	LogMessage(X_ERROR,
-		   "AIGLX error: %s does not export required DRI extension\n",
-		   driverName);
-	goto handle_error;
-    }
-
     /*
      * Get device-specific info.  pDevPriv will point to a struct
      * (such as DRIRADEONRec in xfree86/driver/ati/radeon_dri.h) that
@@ -1147,9 +1125,7 @@ __glXDRIscreenProbe(ScreenPtr pScreen)
      */
     buffer_size = __glXGetExtensionString(screen->glx_enable_bits, NULL);
     if (buffer_size > 0) {
-	if (screen->base.GLXextensions != NULL) {
-	    free(screen->base.GLXextensions);
-	}
+	free(screen->base.GLXextensions);
 
 	screen->base.GLXextensions = xnfalloc(buffer_size);
 	(void) __glXGetExtensionString(screen->glx_enable_bits, 
@@ -1164,7 +1140,7 @@ __glXDRIscreenProbe(ScreenPtr pScreen)
     pScrn->LeaveVT = glxDRILeaveVT;
 
     LogMessage(X_INFO,
-	       "AIGLX: Loaded and initialized %s\n", filename);
+	       "AIGLX: Loaded and initialized %s\n", driverName);
 
     return &screen->base;
 

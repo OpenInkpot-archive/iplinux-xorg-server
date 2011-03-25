@@ -36,6 +36,7 @@
 #include "quartzCommon.h"
 #include "inputstr.h"
 #include "quartz.h"
+#include "quartzRandR.h"
 #include "xpr.h"
 #include "xprEvent.h"
 #include "pseudoramiX.h"
@@ -157,7 +158,7 @@ displayScreenBounds(CGDirectDisplayID id)
               (int)frame.origin.x, (int)frame.origin.y);
     
     /* Remove menubar to help standard X11 window managers. */
-    if (quartzEnableRootless && 
+    if (XQuartzIsRootless && 
         frame.origin.x == 0 && frame.origin.y == 0) {
         frame.origin.y += aquaMenuBarHeight;
         frame.size.height -= aquaMenuBarHeight;
@@ -176,7 +177,7 @@ displayScreenBounds(CGDirectDisplayID id)
  *  with PseudoramiX.
  */
 static void
-xprAddPseudoramiXScreens(int *x, int *y, int *width, int *height)
+xprAddPseudoramiXScreens(int *x, int *y, int *width, int *height, ScreenPtr pScreen)
 {
     CGDisplayCount i, displayCount;
     CGDirectDisplayID *displayList = NULL;
@@ -195,10 +196,18 @@ xprAddPseudoramiXScreens(int *x, int *y, int *width, int *height)
         return;
     }
 
+    /* If the displays are captured, we are in a RandR game mode
+     * on the primary display, so we only want to include the first
+     * display.  The others are covered by the shield window.
+     */
+    if (CGDisplayIsCaptured(kCGDirectMainDisplay))
+        displayCount = 1;
+
     displayList = malloc(displayCount * sizeof(CGDirectDisplayID));
     if(!displayList)
         FatalError("Unable to allocate memory for list of displays.\n");
     CGGetActiveDisplayList(displayCount, displayList, &displayCount);
+    QuartzCopyDisplayIDs(pScreen, displayCount, displayList);
 
     /* Get the union of all screens */
     for (i = 0; i < displayCount; i++) {
@@ -272,7 +281,8 @@ xprDisplayInit(void)
     AppleDRIExtensionInit();
     xprAppleWMInit();
 
-    if (!quartzEnableRootless)
+    XQuartzIsRootless = XQuartzRootlessDefault;
+    if (!XQuartzIsRootless)
         RootlessHideAllWindows();
 }
 
@@ -289,9 +299,34 @@ xprAddScreen(int index, ScreenPtr pScreen)
     DEBUG_LOG("index=%d depth=%d\n", index, depth);
     
     if(depth == -1) {
+#if MAC_OS_X_VERSION_MIN_REQUIRED < 1060
         depth = CGDisplaySamplesPerPixel(kCGDirectMainDisplay) * CGDisplayBitsPerSample(kCGDirectMainDisplay);
+#else
+        CGDisplayModeRef modeRef;
+        CFStringRef encStrRef;
+        
+        modeRef = CGDisplayCopyDisplayMode(kCGDirectMainDisplay);
+        if(!modeRef)
+            goto have_depth;
+
+        encStrRef = CGDisplayModeCopyPixelEncoding(modeRef);
+        CFRelease(modeRef);
+        if(!encStrRef)
+            goto have_depth;
+        
+        if(CFStringCompare(encStrRef, CFSTR(IO32BitDirectPixels), kCFCompareCaseInsensitive) == kCFCompareEqualTo) {
+            depth = 24;
+        } else if(CFStringCompare(encStrRef, CFSTR(IO16BitDirectPixels), kCFCompareCaseInsensitive) == kCFCompareEqualTo) {
+            depth = 15;
+        } else if(CFStringCompare(encStrRef, CFSTR(IO8BitIndexedPixels), kCFCompareCaseInsensitive) == kCFCompareEqualTo) {
+            depth = 8;
+        }
+
+        CFRelease(encStrRef);
+#endif
     }
     
+have_depth:
     switch(depth) {
         case 8: // pseudo-working
             dfb->visuals = PseudoColorMask;
@@ -316,7 +351,7 @@ xprAddScreen(int index, ScreenPtr pScreen)
 //        case 24:
         default:
             if(depth != 24)
-                ErrorF("Unsupported color depth requested.  Defaulting to 24bit. (depth=%d darwinDesiredDepth=%d CGDisplaySamplesPerPixel=%d CGDisplayBitsPerSample=%d)\n",  darwinDesiredDepth, depth, (int)CGDisplaySamplesPerPixel(kCGDirectMainDisplay), (int)CGDisplayBitsPerSample(kCGDirectMainDisplay));
+                ErrorF("Unsupported color depth requested.  Defaulting to 24bit. (depth=%d darwinDesiredDepth=%d)\n", depth, darwinDesiredDepth);
             dfb->visuals = TrueColorMask; //LARGE_VISUALS;
             dfb->preferredCVC = TrueColor;
             dfb->depth = 24;
@@ -336,6 +371,7 @@ xprAddScreen(int index, ScreenPtr pScreen)
         ErrorF("Warning: noPseudoramiXExtension!\n");
         
         dpy = displayAtIndex(index);
+        QuartzCopyDisplayIDs(pScreen, 1, &dpy);
 
         frame = displayScreenBounds(dpy);
 
@@ -346,7 +382,7 @@ xprAddScreen(int index, ScreenPtr pScreen)
     }
     else
     {
-        xprAddPseudoramiXScreens(&dfb->x, &dfb->y, &dfb->width, &dfb->height);
+        xprAddPseudoramiXScreens(&dfb->x, &dfb->y, &dfb->width, &dfb->height, pScreen);
     }
 
     /* Passing zero width (pitch) makes miCreateScreenResources set the
@@ -367,12 +403,6 @@ xprAddScreen(int index, ScreenPtr pScreen)
 static Bool
 xprSetupScreen(int index, ScreenPtr pScreen)
 {
-    // Initialize accelerated rootless drawing
-    // Note that this must be done before DamageSetup().
-
-    // These are crashing ugly... better to be stable and not crash for now.
-    //RootlessAccelInit(pScreen);
-
 #ifdef DAMAGE
     // The Damage extension needs to wrap underneath the
     // generic rootless layer, so do it now.

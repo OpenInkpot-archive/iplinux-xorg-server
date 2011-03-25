@@ -92,6 +92,13 @@
 	<authorinitials>efw</authorinitials>
 	<revremark>Revised for devPrivates changes</revremark>
       </revision>
+      <revision>
+	<revnumber>3.5</revnumber>
+	<date>July 2010</date>
+	<authorinitials>ac</authorinitials>
+	<revremark>Revised for Xorg 1.9 devPrivates changes
+	  and 1.8 CreateNewResourceType changes</revremark>
+      </revision>
     </revhistory>
     <legalnotice>
       <para>Copyright &#xA9; 1994 X Consortium, Inc., 2004 X.org Foundation, Inc.</para>
@@ -357,11 +364,15 @@ Resource types are integer values starting at 1.  Get
 a resource type by calling
 <blockquote><programlisting>
 
-    RESTYPE CreateNewResourceType(deleteFunc)
+    RESTYPE CreateNewResourceType(deleteFunc, char *name)
 
 </programlisting></blockquote>
 deleteFunc will be called to destroy all resources with this
-type.</para>
+type.   name will be used to identify this type of resource
+to clients using the X-Resource extension, to security
+extensions such as SELinux, and to tracing frameworks such as DTrace.
+[The name argument was added in xorg-server 1.8.]
+</para>
 <para>
 Resource classes are masks starting at 1 &lt;&lt; 31 which can
 be or'ed with any resource type to provide attributes for the
@@ -431,18 +442,29 @@ and type; if skipFree is true, then the deleteFunc is not called.
 To look up a resource, use one of the following.
 <blockquote><programlisting>
 
-	pointer LookupIDByType(id, rtype)
-	    XID id;
-	    RESTYPE rtype;
+	int dixLookupResourceByType(
+	    pointer *result,
+	    XID id,
+	    RESTYPE rtype,
+	    ClientPtr client,
+	    Mask access_mode);
 
-	pointer LookupIDByClass(id, classes)
-	    XID id;
-	    RESTYPE classes;
+	int dixLookupResourceByClass(
+	    pointer *result,
+	    XID id,
+	    RESTYPE rclass,
+	    ClientPtr client,
+	    Mask access_mode);
 
 </programlisting></blockquote>
-LookupIDByType finds a resource with the given id and exact type.
-LookupIDByClass finds a resource with the given id whose type is
-included in any one of the specified classes.</para>
+dixLookupResourceByType finds a resource with the given id and exact type.
+dixLookupResourceByClass finds a resource with the given id whose type is
+included in any one of the specified classes.
+The client and access_mode must be provided to allow security extensions to
+check if the client has the right privileges for the requested access.
+The bitmask values defined in the dixaccess.h header are or'ed together
+to define the requested access_mode.
+</para>
 </section>
 </section>
 <section>
@@ -458,7 +480,7 @@ these operations.</para>
 Before getting bogged down in the interface details, an typical usage
 example should establish the framework.  Let's look at the
 ClientStateCallback in dix/dispatch.c.  The purpose of this particular
-callback is to notify intereseted parties when a client's state
+callback is to notify interested parties when a client's state
 (initial, running, gone) changes.  The callback is "created" in this
 case by simply declaring a variable:
 <blockquote><programlisting>
@@ -467,7 +489,7 @@ case by simply declaring a variable:
 </para>
 <para>
 Whenever the client's state changes, the following code appears, which notifies
-all intereseted parties of the change:
+all interested parties of the change:
 <blockquote><programlisting>
 	if (ClientStateCallback) CallCallbacks(&amp;ClientStateCallback, (pointer)client);
 </programlisting></blockquote>
@@ -486,24 +508,6 @@ When CallCallbacks is invoked on the list, func will be called thusly:
 </para>
 <para>
 Now for the details.
-<blockquote><programlisting>
-
-	Bool CreateCallbackList(pcbl, cbfuncs)
-	    CallbackListPtr  *pcbl;
-	    CallbackFuncsPtr cbfuncs;
-
-</programlisting></blockquote>
-CreateCallbackList creates a callback list.  We envision that this
-function will be rarely used because the callback list is created
-automatically (if it doesn't already exist) when the first call to
-AddCallback is made on the list.  The only reason to explicitly create
-the callback list with this function is if you want to override the
-implementation of some of the other operations on the list by passing
-your own cbfuncs.  You also lose something by explicit creation: you
-introduce an order dependency during server startup because the list
-must be created before any modules subscribe to it.  Returns TRUE if
-successful.</para>
-<para>
 <blockquote><programlisting>
 
 	Bool AddCallback(pcbl, callback, subscriber_data)
@@ -584,8 +588,9 @@ used here which takes the minor opcode from the normal place in the request
 There are a number of macros in Xserver/include/dix.h which
 are useful to the extension writer.  Ones of particular interest
 are: REQUEST, REQUEST_SIZE_MATCH, REQUEST_AT_LEAST_SIZE,
-REQUEST_FIXED_SIZE, LEGAL_NEW_RESOURCE, LOOKUP_DRAWABLE, VERIFY_GC, and
+REQUEST_FIXED_SIZE, LEGAL_NEW_RESOURCE, and
 VALIDATE_DRAWABLE_AND_GC. Useful byte swapping macros can be found
+in Xserver/include/dix.h: WriteReplyToClient and WriteSwappedDataToClient; and
 in Xserver/include/misc.h: lswapl, lswaps, LengthRestB, LengthRestS,
 LengthRestL, SwapRestS, SwapRestL, swapl, swaps, cpswapl, and cpswaps.</para>
 </section>
@@ -754,7 +759,7 @@ These registered block handlers are called after the per-screen handlers:
 <programlisting>
 	void (*BlockHandler) (blockData, pptv, pReadmask)
 		pointer	blockData;
-		OSTimePtr pptv;
+		OsTimerPtr pptv;
 		pointer	pReadmask;
 </programlisting>
 </blockquote>
@@ -765,7 +770,7 @@ which on UNIX family systems is generally represented by a struct timeval
 consisting of seconds and microseconds in 32 bit values.
 As a convenience to reduce error prone struct timeval computations which
 require modulus arithmetic and correct overflow behavior in the face of
-millisecond wrapping throrugh 32 bits,
+millisecond wrapping through 32 bits,
 <blockquote><programlisting>
 
 	void AdjustWaitForDelay(pointer /*waitTime*, unsigned long /* newdelay */)
@@ -870,7 +875,7 @@ and RemoveEnabledDevice are in Xserver/os/connection.c.
 Similarly, the X server or an extension may need to wait for some timeout.
 Early X releases implemented this functionality using block and wakeup handlers,
 but this has been rewritten to use a general timer facilty, and the
-internal screen saver facilties reimplemented to use Timers.
+internal screen saver facilities reimplemented to use Timers.
 These functions are TimerInit, TimerForce, TimerSet, TimerCheck, TimerCancel,
 and TimerFree, as defined in Xserver/include/os.h. A callback function will be called
 when the timer fires, along with the current time, and a user provided argument.
@@ -908,11 +913,11 @@ for the timer entry.
 
 	void TimerCancel(OsTimerPtr /* pTimer */)
 
-	void TimerFree(OSTimerPtr /* pTimer */)
+	void TimerFree(OsTimerPtr /* pTimer */)
 </programlisting></blockquote>
 </para>
 <para>
-TimerInit frees any exisiting timer entries. TimerForce forces a call to the timer's
+TimerInit frees any existing timer entries. TimerForce forces a call to the timer's
 callback function and returns true if the timer entry existed, else it returns false and
 does not call the callback function. TimerCancel will cancel the specified timer.
 TimerFree calls TimerCancel and frees the specified timer.
@@ -1177,7 +1182,8 @@ are requests in that client's input queue.
   <title>Font Support</title>
 <para>
 In the sample server, fonts are encoded in disk files or fetched from the
-font server.
+font server.   The two fonts required by the server, <quote>fixed</quote>
+and <quote>cursor</quote> are commonly compiled into the font library.
 For disk fonts, there is one file per font, with a file name like
 "fixed.pcf".  Font server fonts are read over the network using the
 X Font Server Protocol.  The disk directories containing disk fonts and
@@ -1191,9 +1197,10 @@ appropriate code in the Font Library, you will automatically export fonts in
 that format both through the X server and the Font server.
 </para>
 <para>
-With the incorporation of font-server based fonts and the Speedo donation
-from Bitstream, the font interfaces have been moved into a separate
-library, now called the Font Library (../fonts/lib).  These routines are
+The code for processing fonts in different formats, as well as handling the
+metadata files for them on disk (such as <filename>fonts.dir</filename>) is
+located in the libXfont library, which is provided as a separately compiled
+module.  These routines are
 shared between the X server and the Font server, so instead of this document
 specifying what you must implement, simply refer to the font
 library interface specification for the details.  All of the interface code to the Font
@@ -1204,18 +1211,10 @@ library is contained in dix/dixfonts.c
   <title>Memory Management</title>
 <para>
 Memory management is based on functions in the C runtime library.
-Xalloc(), Xrealloc(), and Xfree() work just like malloc(), realloc(),
-and free(), except that you can pass a null pointer to Xrealloc() to
-have it allocate anew or pass a null pointer to Xfree() and nothing
-will happen.  The versions in the sample server also do some checking
-that is useful for debugging.  Consult a C runtime library reference
+Xalloc(), Xrealloc(), and Xfree() are deprecated aliases for malloc(),
+realloc(), and free(), and you should simply call the C library functions
+directly.  Consult a C runtime library reference
 manual for more details.
-</para>
-<para>
-The macros ALLOCATE_LOCAL and DEALLOCATE_LOCAL are provided in
-Xserver/include/os.h.  These are useful if your compiler supports
-alloca() (or some method of allocating memory from the stack); and are
-defined appropriately on systems which support it.
 </para>
 <para>
 Treat memory allocation carefully in your implementation.  Memory
@@ -1347,71 +1346,7 @@ terminate the server; it must not return.
 </para>
 <para>
 The sample server implementation for these routines
-is in Xserver/os/util.c.
-</para>
-</section>
-<section>
-  <title>Idiom Support</title>
-<para>
-The DBE specification introduces the notion of idioms, which are
-groups of X requests which can be executed more efficiently when taken
-as a whole compared to being performed individually and sequentially.
-This following server internal support to allows DBE
-implementations, as well as other parts of the server,
-to do idiom processing.
-</para>
-<para>
-<blockquote><programlisting>
-
-	xReqPtr PeekNextRequest(xReqPtr req, ClientPtr client, Bool readmore)
-</programlisting></blockquote>
-If req is NULL, the return value will be a pointer to the start of the
-complete request that follows the one currently being executed for the
-client.  If req is not NULL, the function assumes that req is a
-pointer to a request in the client's request buffer, and the return
-value will be a pointer to the the start of the complete request that
-follows req.  If the complete request is not available, the function
-returns NULL; pointers to partial requests will never be returned.  If
-(and only if) readmore is TRUE, PeekNextRequest should try to read an
-additional request from the client if one is not already available in
-the client's request buffer.  If PeekNextRequest reads more data into
-the request buffer, it should not move or change the existing data.
-</para>
-<para>
-<blockquote><programlisting>
-
-	void SkipRequests(xReqPtr req, ClientPtr client, int numskipped)
-</programlisting></blockquote>
-The requests for the client up to and including the one specified by
-req will be skipped.  numskipped must be the number of requests being
-skipped.  Normal request processing will resume with the request that
-follows req.  The caller must not have modified the contents of the
-request buffer in any way (e.g., by doing byte swapping in place).
-</para>
-<para>
-Additionally, two macros in os.h operate on the xReq
-pointer returned by PeekNextRequest:
-<blockquote><programlisting>
-
-	int ReqLen(xReqPtr req, ClientPtr client)
-</programlisting></blockquote>
-The value of ReqLen is the request length in bytes of the given xReq.
-<blockquote><programlisting>
-
-	otherReqTypePtr CastxReq(xReq *req, otherReqTypePtr)
-</programlisting></blockquote>
-The value of CastxReq is the conversion of the given request pointer
-to an otherReqTypePtr (which should be a pointer to a protocol
-structure type).  Only those fields which come after the length field
-of otherReqType may be accessed via the returned pointer.
-</para>
-<para>
-Thus the first two fields of a request, reqType and data, can be
-accessed directly using the xReq * returned by PeekNextRequest.  The
-next field, the length, can be accessed with ReqLen.  Fields beyond
-that can be accessed with CastxReq.  This complexity was necessary
-because of the reencoding of core protocol that can happen due to the
-BigRequests extension.
+is in Xserver/os/log.c along with other routines for logging messages.
 </para>
 </section>
 </section>
@@ -1699,8 +1634,6 @@ Input initialization is a bit complicated.
 It all starts with InitInput(), a routine that you write to call
 AddInputDevice() twice
 (once for pointing device and once for keyboard.)
-You also want to call RegisterKeyboardDevice() and RegisterPointerDevice()
-on them.
 </para>
 <para>
 When you Add the devices, a routine you supply for each device
@@ -1720,8 +1653,6 @@ the pointer is the pointer.
 InitInput is a DDX routine you must write to initialize the
 input subsystem in DDX.
 It must call AddInputDevice() for each device that might generate events.
-In addition, you must register the main keyboard and pointing devices by
-calling RegisterPointerDevice() and RegisterKeyboardDevice().
 </para>
 <para>
 <blockquote><programlisting>
@@ -1742,25 +1673,6 @@ install the device.
 <para>
 Note also that except for the main keyboard and pointing device,
 an extension is needed to provide for a client interface to a device.
-</para>
-<para>
-<blockquote><programlisting>
-
-	void RegisterPointerDevice(device)
-		DevicePtr device;
-</programlisting></blockquote>
-RegisterPointerDevice is a DIX routine that your DDX code calls that
-makes that device the main pointing device.
-This routine is called once upon initialization and cannot be called again.
-</para>
-<para>
-<blockquote><programlisting>
-
-	void RegisterKeyboardDevice(device)
-		DevicePtr device;
-</programlisting></blockquote>
-RegisterKeyboardDevice makes the given device the main keyboard.
-This routine is called once upon initialization and cannot be called again.
 </para>
 <para>
 The following DIX
@@ -1897,7 +1809,7 @@ printed on each keycap. (See X11/keysym.h)
 <para>
 Legal modifier keys must generate both up and down transitions.  When
 a client tries to change a modifier key (for instance, to make "A" the
-"Control" key), DIX calls the following routine, which should retuurn
+"Control" key), DIX calls the following routine, which should return
 TRUE if the key can be used as a modifier on the given device:
 <blockquote><programlisting>
 
@@ -2798,7 +2710,7 @@ Xserver/dix/colormap.c.)</para>
 
 
 </programlisting></blockquote>
-ListInstalledColormaps fills the pCMapList in with the resource ids
+ListInstalledColormaps fills the pCmapList in with the resource ids
 of the installed maps and returns a count of installed maps.
 pCmapList will point to an array of size MaxInstalledMaps that was allocated
 by the caller.</para>
@@ -3042,16 +2954,17 @@ The sample server implementation is in Xserver/fb/fbscreen.c.</para>
 	pScreen->SourceValidate(pDrawable, x, y, width, height)
 		DrawablePtr pDrawable;
 		int x, y, width, height;
+		unsigned int subWindowMode;
 
 </programlisting></blockquote>
 SourceValidate should be called by CopyArea/CopyPlane primitives when
-the source drawable is not the same as the destination, and the
-SourceValidate function pointer in the screen is non-null.  If you know that
+the SourceValidate function pointer in the screen is non-null.  If you know that
 you will never need SourceValidate, you can avoid this check.  Currently,
 SourceValidate is used by the mi software cursor code to remove the cursor
 from the screen when the source rectangle overlaps the cursor position.
 x,y,width,height describe the source rectangle (source relative, that is)
-for the copy operation.</para>
+for the copy operation.  subWindowMode comes from the GC or source Picture.
+</para>
 <para>
 <blockquote><programlisting>
 
@@ -3696,7 +3609,7 @@ this screen function.  The new border width is given by width.</para>
 </programlisting></blockquote>
 This function is called for windows that are being unrealized as part of
 an UnrealizeTree.  pChild is the window being unrealized, pWin is an
-ancestor, and the fromConfigure value is simply propogated from UnrealizeTree.</para>
+ancestor, and the fromConfigure value is simply propagated from UnrealizeTree.</para>
 </section>
 </section>
 </section>
@@ -3749,7 +3662,7 @@ Also included in each GC is support for dynamic devPrivates, which the
 DDX can use for any purpose (see <xref linkend="wrappers_and_privates"/> below).</para>
 <para>
 The DIX routines available for manipulating GCs are
-CreateGC, ChangeGC, CopyGC, SetClipRects, SetDashes, and FreeGC.
+CreateGC, ChangeGC, ChangeGCXIDs, CopyGC, SetClipRects, SetDashes, and FreeGC.
 <blockquote><programlisting>
 
 	GCPtr CreateGC(pDrawable, mask, pval, pStatus)
@@ -3758,10 +3671,17 @@ CreateGC, ChangeGC, CopyGC, SetClipRects, SetDashes, and FreeGC.
 	    XID *pval;
 	    int *pStatus;
 
-	int ChangeGC(pGC, mask, pval)
+	int ChangeGC(client, pGC, mask, pUnion)
+	    ClientPtr client;
 	    GCPtr pGC;
 	    BITS32 mask;
-	    XID *pval;
+	    ChangeGCValPtr pUnion;
+
+	int ChangeGCXIDs(client, pGC, mask, pC32)
+	    ClientPtr client;
+	    GCPtr pGC;
+	    BITS32 mask;
+	    CARD32 *pC32;
 
 	int CopyGC(pgcSrc, pgcDst, mask)
 	    GCPtr pgcSrc;
@@ -4804,32 +4724,68 @@ Two new extensibility concepts have been developed for release 4, Wrappers
 and devPrivates.  These replace the R3 GCInterest queues, which were not a
 general enough mechanism for many extensions and only provided hooks into a
 single data structure.  devPrivates have been revised substantially for
-X.org X server relase 1.5.</para>
+X.Org X server release 1.5, and updated again for the 1.9 release.</para>
 <section>
   <title>devPrivates</title>
 <para>
 devPrivates provides a way to attach arbitrary private data to various server structures.
 Any structure which contains a <structfield>devPrivates</structfield> field of
-type <type>PrivateRec</type> supports this mechanism.  Private data can be allocated at
-any time during an object's life cycle and callbacks are available to initialize and clean
-up allocated space.</para>
+type <type>PrivateRec</type> supports this mechanism.  Some structures allow
+allocating space for private data after some objects have been created, others
+require all space allocations be registered before any objects of that type
+are created.  <filename class="headerfile">Xserver/include/privates.h</filename>
+lists which of these cases applies to each structure containing
+<structfield>devPrivates</structfield>.</para>
+
+<para>
+To request private space, use
+<blockquote><programlisting>
+	Bool dixRegisterPrivateKey(DevPrivateKey key, DevPrivateType type, unsigned size);
+</programlisting></blockquote>
+The first argument is a pointer to a <type>DevPrivateKeyRec</type> which
+will serve as the unique identifier for the private data.  Typically this is
+the address of a static <type>DevPrivateKeyRec</type> in your code.
+The second argument is the class of objects for which this key will apply.
+The third argument is the size of the space being requested, or
+<constant>0</constant> to only allocate a pointer that the caller will manage.
+If space is requested, this space will be automatically freed when the object
+is destroyed.  Note that a call to <function>dixSetPrivate</function>
+that changes the pointer value may cause the space to be unreachable by the caller, however it will still be automatically freed.
+The function returns <literal>TRUE</literal> unless memory allocation fails.
+If the function is called more than once on the same key, all calls must use
+the same value for <type>size</type> or the server will abort.</para>
+
+<para>
+To request per-screen private space in an object, use
+<blockquote><programlisting>
+	Bool dixRegisterScreenPrivateKey(DevScreenPrivateKey key, ScreenPtr pScreen, DevPrivateType type, unsigned size);
+</programlisting></blockquote>
+The <parameter>type</parameter> and <parameter>size</parameter> arguments are
+the same as those to <function>dixRegisterPrivateKey</function> but this
+function ensures the given <parameter>key</parameter> exists on objects of
+the specified type with distinct storage for the given
+<parameter>pScreen</parameter>. The key is usable on ScreenPrivate variants
+that are otherwise equivalent to the following Private functions.</para>
+
 <para>
 To attach a piece of private data to an object, use:
 <blockquote><programlisting>
-	int dixSetPrivate(PrivateRec **privates, const DevPrivateKey key, pointer val)
+	void dixSetPrivate(PrivateRec **privates, const DevPrivateKey key, pointer val)
 </programlisting></blockquote>
-The first argument is the address of the <structfield>devPrivates</structfield> field
-in the target structure.  This field is managed privately by the DIX layer and
-should not be directly modified.  The second argument is some address value which
-will serve as the unique identifier for the private data.  Typically this is the address
-of some global variable in your code.  Only one piece of data with a given key can be attached to an object.  However, you
-can use the same key to store data in any object that supports the devPrivates mechanism.  The third
-argument is the value to store.</para>
+The first argument is the address of the <structfield>devPrivates</structfield>
+field in the target structure.  This field is managed privately by the DIX
+layer and should not be directly modified.  The second argument is a pointer
+to the <type>DevPrivateKeyRec</type> which you registered with
+<function>dixRegisterPrivateKey</function> or allocated with
+<function>dixCreatePrivateKey</function>.  Only one
+piece of data with a given key can be attached to an object, and in most cases
+each key is specific to the type of object it was registered for.   (An
+exception is the PRIVATE_XSELINUX class which applies to multiple object types.)
+The third argument is the value to store.</para>
 <para>
-If private data with the given key is already associated with the object, <function>dixSetPrivate</function> will
-overwrite the old value with the new one.  Otherwise, new space will be allocated to hold the pointer value.
-The function returns <literal>TRUE</literal> unless memory allocation fails, but note that since memory allocation only
-occurs on the first reference to the private data, all subsequent calls are guaranteed to succeed.</para>
+If private data with the given key is already associated with the object,
+<function>dixSetPrivate</function> will overwrite the old value with the
+new one.</para>
 
 <para>
 To look up a piece of private data, use one of:
@@ -4838,56 +4794,22 @@ To look up a piece of private data, use one of:
 	pointer *dixLookupPrivateAddr(PrivateRec **privates, const DevPrivateKey key)
 </programlisting></blockquote>
 The first argument is the address of the <structfield>devPrivates</structfield> field
-in the target structure.  The second argument is the key to look up.  If private data with the given key is already associated
-with the object, <function>dixLookupPrivate</function> will return the stored pointer value while <function>dixLookupPrivateAddr</function>
-will return the address of the stored pointer.  Otherwise, new space will be first allocated to hold the pointer value
-and it will be initialized to NULL.  Both functions return <literal>NULL</literal> if memory allocation fails, but note that
-since memory allocation only occurs on the first reference to the private data, all subsequent calls are guaranteed to succeed.</para>
+in the target structure.  The second argument is the key to look up.
+If a non-zero size was given when the key was registered, or if private data
+with the given key is already associated with the object, then
+<function>dixLookupPrivate</function> will return the pointer value
+while <function>dixLookupPrivateAddr</function>
+will return the address of the pointer.</para>
 
 <para>
-To request pre-allocated private space, use
-<blockquote><programlisting>
-	int dixRequestPrivate(const DevPrivateKey key, unsigned size)
-</programlisting></blockquote>
-The first argument is the key for which space is being requested.  The second argument is the size of the space being requested.
-After this function has been called,
-future calls to <function>dixLookupPrivate</function> or <function>dixLookupPrivateAddr</function> that cause the private pointer
-to be initially allocated will also allocate <varname>size</varname> bytes of space cleared to zero and initialize the private pointer to point
-to this space instead of <literal>NULL</literal>.  This space will be automatically freed.  Note that a call to <function>dixSetPrivate</function>
-that changes the pointer value may cause the space to be unreachable by the caller, however it will still be automatically freed.
-The function returns <literal>TRUE</literal> unless memory allocation fails.  If the function is called more than once, the largest value
-of <type>size</type> is used.</para>
-
-<para>
-To set callbacks for initializing and cleaning up private space, use
-<blockquote><programlisting>
-	typedef struct {
-		DevPrivateKey key;
-		pointer *value;
-	} PrivateCallbackRec;
-
-	int dixRegisterPrivateInitFunc(const DevPrivateKey key,
-		CallbackProcPtr callback,
-		pointer userdata)
-	int dixRegisterPrivateDeleteFunc(const DevPrivateKey key,
-		CallbackProcPtr callback,
-		pointer userdata)
-</programlisting></blockquote>
-The first argument is the key for which the callbacks are being registered.  The second argument is the callback function.  The third argument
-will be passed as the user data argument to the callback function when it is called.  The call data argument to the callback is a pointer to
-a structure of type <type>PrivateCallbackRec</type>.</para>
-<para>
-The init callback is called immediately after new private space has been allocated for the given key.  The delete callback is called immediately
-before the private space is freed when the object is being destroyed.  The <type>PrivateCallbackRec</type> structure contains the devPrivate key
-and the address of the private pointer.  The init callback may be used to initialize any pre-allocated space requested by
-<function>dixRequestPrivate</function>, while the delete callback may be used to free any data stored there.  However the callbacks are called even
-if no pre-allocated space was requested.</para>
-
-<para>
-When implementing new server resource objects that support devPrivates, there are three steps to perform:
-Declare a field of type <type>PrivateRec *</type> in your structure;
+When implementing new server resource objects that support devPrivates, there
+are four steps to perform:
+Add a type value to the <type>DevPrivateType</type> enum in
+<filename class="headerfile">Xserver/include/privates.h</filename>,
+declare a field of type <type>PrivateRec *</type> in your structure;
 initialize this field to <literal>NULL</literal> when creating any objects; and
-call the <function>dixFreePrivates</function> function, passing in the field value, when freeing any objects.</para>
+when freeing any objects call the <function>dixFreePrivates</function> or
+<function>dixFreeObjectWithPrivates</function> function.</para>
 </section>
 <section>
   <title>Wrappers</title>
@@ -5092,7 +5014,7 @@ mi and fb implementations.</para>
 <row><entry><function>ListInstalledColormaps</function></entry><entry><literal>ddx</literal></entry><entry><para>Screen</para></entry></row>
 <row><entry><function>LookupKeyboardDevice</function></entry><entry><literal>dix</literal></entry><entry><para></para></entry></row>
 <row><entry><function>LookupPointerDevice</function></entry><entry><literal>dix</literal></entry><entry><para></para></entry></row>
-<row><entry><function>ModifyPixmapheader</function></entry><entry><literal>mi</literal></entry><entry><para>Screen</para></entry></row>
+<row><entry><function>ModifyPixmapHeader</function></entry><entry><literal>mi</literal></entry><entry><para>Screen</para></entry></row>
 <row><entry><function>NextAvailableClient</function></entry><entry><literal>dix</literal></entry><entry><para></para></entry></row>
 <row><entry><function>OsInit</function></entry><entry><literal>os</literal></entry><entry><para></para></entry></row>
 <row><entry><function>PaintWindowBackground</function></entry><entry><literal>mi</literal></entry><entry><para>Window</para></entry></row>
@@ -5143,8 +5065,6 @@ mi and fb implementations.</para>
 	      </row>
 	    </thead>
 	    <tbody>
-<row><entry><function>RegisterKeyboardDevice</function></entry><entry><literal>dix</literal></entry><entry><para></para></entry></row>
-<row><entry><function>RegisterPointerDevice</function></entry><entry><literal>dix</literal></entry><entry><para></para></entry></row>
 <row><entry><function>RemoveEnabledDevice</function></entry><entry><literal>os</literal></entry><entry><para></para></entry></row>
 <row><entry><function>ResetCurrentRequest</function></entry><entry><literal>os</literal></entry><entry><para></para></entry></row>
 <row><entry><function>SaveScreen</function></entry><entry><literal>ddx</literal></entry><entry><para>Screen</para></entry></row>

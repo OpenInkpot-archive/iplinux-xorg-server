@@ -48,12 +48,11 @@
 #include <sys/stat.h>
 #include <AvailabilityMacros.h>
 
-#include "quartzCommon.h"
+#include "quartz.h"
 #include "darwin.h"
 #include "darwinEvents.h"
 
 #include "quartzKeyboard.h"
-#include "quartzAudio.h"
 
 #include "X11Application.h"
 
@@ -262,7 +261,7 @@ static void DarwinBuildModifierMaps(darwinKeyboardInfo *info) {
             case XK_Alt_L:
                 info->modifierKeycodes[NX_MODIFIERKEY_ALTERNATE][0] = i;
                 info->modMap[MIN_KEYCODE + i] = Mod1Mask;
-                if(!quartzOptionSendsAlt)
+                if(!XQuartzOptionSendsAlt)
                     *k = XK_Mode_switch; // Yes, this is ugly.  This needs to be cleaned up when we integrate quartzKeyboard with this code and refactor.
                 break;
 
@@ -272,7 +271,7 @@ static void DarwinBuildModifierMaps(darwinKeyboardInfo *info) {
 #else
                 info->modifierKeycodes[NX_MODIFIERKEY_ALTERNATE][0] = i;
 #endif
-                if(!quartzOptionSendsAlt)
+                if(!XQuartzOptionSendsAlt)
                     *k = XK_Mode_switch; // Yes, this is ugly.  This needs to be cleaned up when we integrate quartzKeyboard with this code and refactor.
                 info->modMap[MIN_KEYCODE + i] = Mod1Mask;
                 break;

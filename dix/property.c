@@ -284,7 +284,6 @@ dixChangeWindowProperty(ClientPtr pClient, WindowPtr pWin, Atom property,
         pProp->format = format;
         pProp->data = data;
 	pProp->size = len;
-	pProp->devPrivates = NULL;
 	rc = XaceHookPropertyAccess(pClient, pWin, &pProp,
 				    DixCreateAccess|DixWriteAccess);
 	if (rc != Success) {
@@ -425,6 +424,9 @@ DeleteAllWindowProperties(WindowPtr pWin)
 	dixFreeObjectWithPrivates(pProp, PRIVATE_PROPERTY);
 	pProp = pNextProp;
     }
+
+    if (pWin->optional)
+        pWin->optional->userProps = NULL;
 }
 
 static int

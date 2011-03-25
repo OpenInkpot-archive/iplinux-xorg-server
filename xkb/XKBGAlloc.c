@@ -50,10 +50,8 @@ _XkbFreeGeomLeafElems(	Bool			freeAll,
 {
     if ((freeAll)||(*elems==NULL)) {
 	*num_inout= *sz_inout= 0;
-	if (*elems!=NULL) {
-	    free(*elems);
-	    *elems= NULL;
-	}	
+	free(*elems);
+	*elems = NULL;
 	return;
     }
 
@@ -373,22 +371,16 @@ XkbDoodadPtr	doodad= (XkbDoodadPtr)doodad_in;
     switch (doodad->any.type) {
    	case XkbTextDoodad: 
 	    {
-		if (doodad->text.text!=NULL) {
-		    free(doodad->text.text);
-		    doodad->text.text= NULL;
-		}
-		if (doodad->text.font!=NULL) {
-		    free(doodad->text.font);
-		    doodad->text.font= NULL;
-		}
+		free(doodad->text.text);
+		doodad->text.text = NULL;
+		free(doodad->text.font);
+		doodad->text.font = NULL;
 	    }
 	    break;
    	case XkbLogoDoodad: 
 	    {
-		if (doodad->logo.logo_name!=NULL) {
-		    free(doodad->logo.logo_name);
-		    doodad->logo.logo_name= NULL;
-		}
+		free(doodad->logo.logo_name);
+		doodad->logo.logo_name = NULL;
 	    }
 	    break;
     }
@@ -434,10 +426,8 @@ XkbFreeGeometry(XkbGeometryPtr geom,unsigned which,Bool freeMap)
     if ((which&XkbGeomKeyAliasesMask)&&(geom->key_aliases!=NULL))
 	XkbFreeGeomKeyAliases(geom,0,geom->num_key_aliases,TRUE);
     if (freeMap) {
-	if (geom->label_font!=NULL) {
-	    free(geom->label_font);
-	    geom->label_font= NULL;
-	}
+	free(geom->label_font);
+	geom->label_font = NULL;
 	free(geom);
     }
     return;
@@ -657,9 +647,7 @@ register XkbPropertyPtr prop;
     for (i=0,prop=geom->properties;i<geom->num_properties;i++,prop++) {
 	if ((prop->name)&&(strcmp(name,prop->name)==0)) {
 	    free(prop->value);
-	    prop->value= malloc(strlen(value)+1);
-	    if (prop->value)
-		strcpy(prop->value,value);
+	    prop->value= strdup(value);
 	    return prop;
 	}    
     }
@@ -668,17 +656,15 @@ register XkbPropertyPtr prop;
 	return NULL;
     }
     prop= &geom->properties[geom->num_properties];
-    prop->name= malloc(strlen(name)+1);
-    if (!name)
+    prop->name= strdup(name);
+    if (!prop->name)
 	return NULL;
-    strcpy(prop->name,name);
-    prop->value= malloc(strlen(value)+1);
-    if (!value) {
+    prop->value= strdup(value);
+    if (!prop->value) {
 	free(prop->name);
 	prop->name= NULL;
 	return NULL;
     }
-    strcpy(prop->value,value);
     geom->num_properties++;
     return prop;
 }
@@ -730,10 +716,9 @@ register XkbColorPtr color;
     }
     color= &geom->colors[geom->num_colors];
     color->pixel= pixel;
-    color->spec= malloc(strlen(spec)+1);
+    color->spec= strdup(spec);
     if (!color->spec)
 	return NULL;
-    strcpy(color->spec,spec);
     geom->num_colors++;
     return color;
 }

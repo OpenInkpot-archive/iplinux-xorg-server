@@ -1,8 +1,4 @@
-if BUILDDOCS
-SUBDIRS = devel man sgml
-else
-SUBDIRS = man
-endif
+SUBDIRS = devel sgml
 
 EXTRA_DIST = \
 	README.modes

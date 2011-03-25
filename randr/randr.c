@@ -270,6 +270,8 @@ Bool RRScreenInit(ScreenPtr pScreen)
     
     wrap (pScrPriv, pScreen, CloseScreen, RRCloseScreen);
 
+    pScreen->ConstrainCursorHarder = RRConstrainCursorHarder;
+
     pScrPriv->numOutputs = 0;
     pScrPriv->outputs = NULL;
     pScrPriv->numCrtcs = 0;
@@ -354,6 +356,11 @@ RRExtensionInit (void)
 	SRRScreenChangeNotifyEvent;
     EventSwapVector[RREventBase + RRNotify] = (EventSwapPtr)
 	SRRNotifyEvent;
+
+    RRModeInitErrorValue();
+    RRCrtcInitErrorValue();
+    RROutputInitErrorValue();
+
 #ifdef PANORAMIX
     RRXineramaExtensionInit();
 #endif

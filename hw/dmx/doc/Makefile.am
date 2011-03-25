@@ -19,41 +19,17 @@
 #  NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 #  CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-XML_FILES = dmx.xml scaled.xml
+doc_sources = dmx.xml scaled.xml
 
-include ../../../doc/xml/xmlrules.in
-
+# Developer's documentation is not installed
 if ENABLE_DEVEL_DOCS
-noinst_DATA = $(BUILT_DOC_FILES)
-endif
-CLEANFILES = $(CLEAN_DOC_FILES)
+include $(top_srcdir)/doc/xml/xmlrules-noinst.in
+endif ENABLE_DEVEL_DOCS
 
-if HAVE_DOXYGEN
+DOXYGEN_HEAD=\
+	html/annotated.html
 
-DOXYGEN_SRC=doxygen.head doxygen.foot doxygen.css doxygen.conf
-
-all-local: html/annotated.html
-
-dist-local: html/annotated.html
-
-html/annotated.html: $(DOXYGEN_SRC)
-	$(DOXYGEN) $(srcdir)/doxygen.conf
-
-maintainer-clean-local:
-	rm -rf html/
-endif
-
-EXTRA_DIST = \
-	$(XML_FILES) \
-	DMXSpec.txt \
-	DMXSpec-v1.txt \
-	dmx.txt \
-	doxygen.conf \
-	doxygen.css \
-	doxygen.foot \
-	doxygen.head \
-	scaled.txt \
-	html/annotated.html \
+DOXYGEN_REST= \
 	html/ChkNotMaskEv_8c.html \
 	html/ChkNotMaskEv_8h.html \
 	html/ChkNotMaskEv_8h_source.html \
@@ -255,6 +231,40 @@ EXTRA_DIST = \
 	html/usb-other_8h_source.html \
 	html/usb-private_8h.html \
 	html/usb-private_8h_source.html
+
+DOXYGEN_FILES=$(DOXYGEN_HEAD) $(DOXYGEN_REST)
+
+EXTRA_DIST = \
+	DMXSpec.txt \
+	DMXSpec-v1.txt \
+	doxygen.conf \
+	doxygen.css \
+	doxygen.foot \
+	doxygen.head \
+	$(DOXYGEN_FILES)
+
+if ENABLE_DEVEL_DOCS
+if HAVE_DOXYGEN
+
+DOXYGEN_SRC=doxygen.head doxygen.foot doxygen.css doxygen.conf
+
+all-local: $(DOXYGEN_FILES)
+
+dist-local: $(DOXYGEN_FILES)
+
+$(DOXYGEN_HEAD): $(DOXYGEN_SRC)
+	$(DOXYGEN) doxygen.conf
+
+$(DOXYGEN_REST): $(DOXYGEN_HEAD)
+
+maintainer-clean-local:
+	rm -rf html/
+
+distclean-local:
+	rm -rf html/
+
+endif HAVE_DOXYGEN
+endif ENABLE_DEVEL_DOCS
 
 $(builddir)/doxygen.head:
 	$(LN_S) $(srcdir)/doxygen.head $@

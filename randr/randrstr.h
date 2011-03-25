@@ -297,6 +297,7 @@ typedef struct _rrScrPriv {
     int			    rate;
     int			    size;
 #endif
+    Bool                   discontiguous;
 } rrScrPrivRec, *rrScrPrivPtr;
 
 extern _X_EXPORT DevPrivateKeyRec rrPrivKeyRec;
@@ -441,43 +442,6 @@ ProcRRGetScreenInfo (ClientPtr client);
 extern _X_EXPORT void
 RRDeliverScreenEvent (ClientPtr client, WindowPtr pWin, ScreenPtr pScreen);
     
-/* mirandr.c */
-extern _X_EXPORT Bool
-miRandRInit (ScreenPtr pScreen);
-
-extern _X_EXPORT Bool
-miRRGetInfo (ScreenPtr pScreen, Rotation *rotations);
-
-extern _X_EXPORT Bool
-miRRCrtcSet (ScreenPtr	pScreen,
-	     RRCrtcPtr	crtc,
-	     RRModePtr	mode,
-	     int	x,
-	     int	y,
-	     Rotation	rotation,
-	     int	numOutput,
-	     RROutputPtr *outputs);
-
-extern _X_EXPORT Bool
-miRROutputSetProperty (ScreenPtr	    pScreen,
-		       RROutputPtr	    output,
-		       Atom		    property,
-		       RRPropertyValuePtr   value);
-
-extern _X_EXPORT Bool
-miRROutputGetProperty (ScreenPtr	    pScreen,
-		       RROutputPtr	    output,
-		       Atom		    property);
-
-extern _X_EXPORT Bool
-miRROutputValidateMode (ScreenPtr	    pScreen,
-			RROutputPtr	    output,
-			RRModePtr	    mode);
-
-extern _X_EXPORT void
-miRRModeDestroy (ScreenPtr  pScreen,
-		 RRModePtr  mode);
-
 /* randr.c */
 /*
  * Send all pending events
@@ -701,6 +665,12 @@ extern _X_EXPORT Bool
 RRCrtcInit (void);
 
 /*
+ * Initialize crtc type error value
+ */
+extern _X_EXPORT void
+RRCrtcInitErrorValue (void);
+
+/*
  * Crtc dispatch
  */
 
@@ -730,6 +700,9 @@ ProcRRGetPanning (ClientPtr client);
 
 int
 ProcRRSetPanning (ClientPtr client);
+
+void
+RRConstrainCursorHarder (DeviceIntPtr, ScreenPtr, int, int *, int *);
 
 /* rrdispatch.c */
 extern _X_EXPORT Bool
@@ -762,6 +735,12 @@ RRModesForScreen (ScreenPtr pScreen, int *num_ret);
  */
 extern _X_EXPORT Bool
 RRModeInit (void);
+
+/*
+ * Initialize mode type error value
+ */
+extern _X_EXPORT void
+RRModeInitErrorValue (void);
     
 extern _X_EXPORT int
 ProcRRCreateMode (ClientPtr client);
@@ -856,6 +835,12 @@ ProcRRGetOutputPrimary (ClientPtr client);
  */
 extern _X_EXPORT Bool
 RROutputInit (void);
+
+/*
+ * Initialize output type error value
+ */
+extern _X_EXPORT void
+RROutputInitErrorValue (void);
     
 /* rrpointer.c */
 extern _X_EXPORT void

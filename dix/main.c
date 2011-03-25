@@ -104,11 +104,11 @@ Equipment Corporation.
 #include "extnsionst.h"
 #include "privates.h"
 #include "registry.h"
+#include "client.h"
 #ifdef PANORAMIX
 #include "panoramiXsrv.h"
 #else
 #include "dixevents.h"		/* InitEvents() */
-#include "dispatch.h"		/* InitProcVectors() */
 #endif
 
 #ifdef DPMSExtension
@@ -173,7 +173,6 @@ int main(int argc, char *argv[], char *envp[])
 	if(serverGeneration == 1)
 	{
 	    CreateWellKnownSockets();
-	    InitProcVectors();
 	    for (i=1; i<MAXCLIENTS; i++)
 		clients[i] = NullClient;
 	    serverClient = calloc(sizeof(ClientRec), 1);
@@ -266,6 +265,7 @@ int main(int argc, char *argv[], char *envp[])
         InitCoreDevices();
 	InitInput(argc, argv);
 	InitAndStartDevices();
+	ReserveClientIds(serverClient);
 
 	dixSaveScreens(serverClient, SCREEN_SAVER_FORCER, ScreenSaverReset);
 
@@ -331,6 +331,7 @@ int main(int argc, char *argv[], char *envp[])
 	    screenInfo.numScreens = i;
 	}
 
+	ReleaseClientIds(serverClient);
 	dixFreePrivates(serverClient->devPrivates, PRIVATE_CLIENT);
 	serverClient->devPrivates = NULL;
 

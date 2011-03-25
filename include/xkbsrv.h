@@ -447,6 +447,11 @@ extern _X_EXPORT void	XkbFreeKeyboard(
 	Bool			/* freeDesc */
 );
 
+extern _X_EXPORT void	XkbFreeComponentNames(
+	XkbComponentNamesPtr	/* names */,
+	Bool			/* freeNames */
+);
+
 extern _X_EXPORT  void XkbSetActionKeyMods(
 	XkbDescPtr		/* xkb */,
 	XkbAction *		/* act */,
@@ -846,10 +851,6 @@ extern _X_EXPORT XkbGeometryPtr XkbLookupNamedGeometry(
 	Bool *			/* shouldFree */
 );
 
-extern _X_EXPORT char *	_XkbDupString(
-	const char *		/* str */
-);
-
 extern _X_EXPORT void	XkbConvertCase(
 	KeySym 			/* sym */,
 	KeySym *		/* lower */,
@@ -926,6 +927,12 @@ extern int XkbGetEffectiveGroup(
 
 extern void XkbMergeLockedPtrBtns(
         DeviceIntPtr            /* master */);
+
+extern void XkbFakeDeviceButton(
+        DeviceIntPtr            /* dev */,
+        int                     /* press */,
+        int                     /* button */);
+
 
 #include "xkbfile.h"
 #include "xkbrules.h"

@@ -1,6 +1,8 @@
-if UNITTESTS
+if ENABLE_UNIT_TESTS
+if HAVE_GLIB
+if HAVE_LD_WRAP
 SUBDIRS= . xi2
-check_PROGRAMS = xkb input xtest
+check_PROGRAMS = xkb input xtest list
 check_LTLIBRARIES = libxservertest.la
 
 TESTS=$(check_PROGRAMS)
@@ -16,6 +18,7 @@ endif
 xkb_LDADD=$(TEST_LDADD)
 input_LDADD=$(TEST_LDADD)
 xtest_LDADD=$(TEST_LDADD)
+list_LDADD=$(TEST_LDADD)
 
 libxservertest_la_LIBADD = \
             $(XSERVER_LIBS) \
@@ -33,10 +36,11 @@ libxservertest_la_LIBADD = \
             $(top_builddir)/mi/libmi.la \
             $(top_builddir)/os/libos.la \
             @XORG_LIBS@
+endif
+endif
+endif
 
 CLEANFILES=libxservertest.c
 
 libxservertest.c:
 	touch $@
-
-endif

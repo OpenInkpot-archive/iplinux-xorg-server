@@ -28,13 +28,10 @@
 #endif
 #include "windowstr.h"
 #include <X11/extensions/ge.h>
-#include "registry.h"
 
 #include "geint.h"
 #include "geext.h"
 #include "protocol-versions.h"
-
-#define rClient(obj) (clients[CLIENT_ID((obj)->resource)])
 
 DevPrivateKeyRec GEClientPrivateKeyRec;
 

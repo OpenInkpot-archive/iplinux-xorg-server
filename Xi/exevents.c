@@ -111,13 +111,6 @@ XIShouldNotify(ClientPtr client, DeviceIntPtr dev)
     return 0;
 }
 
-void
-RegisterOtherDevice(DeviceIntPtr device)
-{
-    device->public.processInputProc = ProcessOtherEvent;
-    device->public.realInputProc = ProcessOtherEvent;
-}
-
 Bool
 IsPointerEvent(InternalEvent* event)
 {
@@ -223,6 +216,7 @@ DeepCopyFeedbackClasses(DeviceIntPtr from, DeviceIntPtr to)
         {
             classes = to->unused_classes;
             to->intfeed = classes->intfeed;
+            classes->intfeed = NULL;
         }
 
         i = &to->intfeed;
@@ -258,6 +252,7 @@ DeepCopyFeedbackClasses(DeviceIntPtr from, DeviceIntPtr to)
         {
             classes = to->unused_classes;
             to->stringfeed = classes->stringfeed;
+            classes->stringfeed = NULL;
         }
 
         s = &to->stringfeed;
@@ -293,6 +288,7 @@ DeepCopyFeedbackClasses(DeviceIntPtr from, DeviceIntPtr to)
         {
             classes = to->unused_classes;
             to->bell = classes->bell;
+            classes->bell = NULL;
         }
 
         b = &to->bell;
@@ -329,6 +325,7 @@ DeepCopyFeedbackClasses(DeviceIntPtr from, DeviceIntPtr to)
         {
             classes = to->unused_classes;
             to->leds = classes->leds;
+            classes->leds = NULL;
         }
 
         l = &to->leds;
@@ -379,6 +376,7 @@ DeepCopyKeyboardClasses(DeviceIntPtr from, DeviceIntPtr to)
             to->kbdfeed = classes->kbdfeed;
             if (!to->kbdfeed)
                 InitKeyboardDeviceStruct(to, NULL, NULL, NULL);
+            classes->kbdfeed = NULL;
         }
 
         k = &to->kbdfeed;
@@ -506,6 +504,7 @@ DeepCopyPointerClasses(DeviceIntPtr from, DeviceIntPtr to)
         {
             classes = to->unused_classes;
             to->ptrfeed = classes->ptrfeed;
+            classes->ptrfeed = NULL;
         }
 
         p = &to->ptrfeed;
@@ -557,7 +556,6 @@ DeepCopyPointerClasses(DeviceIntPtr from, DeviceIntPtr to)
 
         v->axisVal = (double*)(v->axes + from->valuator->numAxes);
         v->sourceid = from->id;
-        v->mode = from->valuator->mode;
     } else if (to->valuator && !from->valuator)
     {
         ClassesPtr classes;
@@ -712,10 +710,13 @@ ChangeMasterDeviceClasses(DeviceIntPtr device, DeviceChangedEvent *dce)
     if (rc != Success)
         return; /* Device has disappeared */
 
-    if (!slave->u.master)
+    if (IsMaster(slave))
+        return;
+
+    if (IsFloating(slave))
         return; /* set floating since the event */
 
-    if (slave->u.master->id != dce->masterid)
+    if (GetMaster(slave, MASTER_ATTACHED)->id != dce->masterid)
         return; /* not our slave anymore, don't care */
 
     /* FIXME: we probably need to send a DCE for the new slave now */
@@ -747,7 +748,6 @@ UpdateDeviceState(DeviceIntPtr device, DeviceEvent* event)
     KeyClassPtr k       = NULL;
     ButtonClassPtr b    = NULL;
     ValuatorClassPtr v  = NULL;
-    BYTE *kptr          = NULL;
 
     /* This event is always the first we get, before the actual events with
      * the data. However, the way how the DDX is set up, "device" will
@@ -814,32 +814,31 @@ UpdateDeviceState(DeviceIntPtr device, DeviceEvent* event)
         if (!k)
             return DONT_PROCESS;
 
-	kptr = &k->down[key >> 3];
-        /* don't allow ddx to generate multiple downs, but repeats are okay */
-	if ((*kptr & bit) && !event->key_repeat)
+	/* don't allow ddx to generate multiple downs, but repeats are okay */
+	if (key_is_down(device, key, KEY_PROCESSED) && !event->key_repeat)
 	    return DONT_PROCESS;
+
 	if (device->valuator)
 	    device->valuator->motionHintWindow = NullWindow;
-	*kptr |= bit;
+	set_key_down(device, key, KEY_PROCESSED);
     } else if (event->type == ET_KeyRelease) {
         if (!k)
             return DONT_PROCESS;
 
-	kptr = &k->down[key >> 3];
-	if (!(*kptr & bit))	/* guard against duplicates */
+	if (!key_is_down(device, key, KEY_PROCESSED))	/* guard against duplicates */
 	    return DONT_PROCESS;
 	if (device->valuator)
 	    device->valuator->motionHintWindow = NullWindow;
-	*kptr &= ~bit;
+	set_key_up(device, key, KEY_PROCESSED);
     } else if (event->type == ET_ButtonPress) {
         Mask mask;
         if (!b)
             return DONT_PROCESS;
 
-        kptr = &b->down[key >> 3];
-        if ((*kptr & bit) != 0)
+        if (button_is_down(device, key, BUTTON_PROCESSED))
             return DONT_PROCESS;
-        *kptr |= bit;
+
+        set_button_down(device, key, BUTTON_PROCESSED);
 	if (device->valuator)
 	    device->valuator->motionHintWindow = NullWindow;
         if (!b->map[key])
@@ -859,8 +858,7 @@ UpdateDeviceState(DeviceIntPtr device, DeviceEvent* event)
         if (!b)
             return DONT_PROCESS;
 
-        kptr = &b->down[key>>3];
-        if (!(*kptr & bit))
+        if (!button_is_down(device, key, BUTTON_PROCESSED))
             return DONT_PROCESS;
         if (IsMaster(device)) {
             DeviceIntPtr sd;
@@ -871,15 +869,17 @@ UpdateDeviceState(DeviceIntPtr device, DeviceEvent* event)
              * event being delivered through the slave first
              */
             for (sd = inputInfo.devices; sd; sd = sd->next) {
-                if (IsMaster(sd) || sd->u.master != device)
+                if (IsMaster(sd) || GetMaster(sd, MASTER_POINTER) != device)
                     continue;
                 if (!sd->button)
                     continue;
-                if ((sd->button->down[key>>3] & bit) != 0)
-                    return DONT_PROCESS;
+                for (i = 1; i <= sd->button->numButtons; i++)
+                    if (sd->button->map[i] == key &&
+                        button_is_down(sd, i, BUTTON_PROCESSED))
+                        return DONT_PROCESS;
             }
         }
-        *kptr &= ~bit;
+        set_button_up(device, key, BUTTON_PROCESSED);
 	if (device->valuator)
 	    device->valuator->motionHintWindow = NullWindow;
         if (!b->map[key])
@@ -895,9 +895,9 @@ UpdateDeviceState(DeviceIntPtr device, DeviceEvent* event)
         mask = PointerMotionMask | b->state | b->motionMask;
         SetMaskForEvent(device->id, mask, MotionNotify);
     } else if (event->type == ET_ProximityIn)
-	device->valuator->mode &= ~OutOfProximity;
+	device->proximity->in_proximity = TRUE;
     else if (event->type == ET_ProximityOut)
-	device->valuator->mode |= OutOfProximity;
+	device->proximity->in_proximity = FALSE;
 
     return DEFAULT;
 }
@@ -1009,7 +1009,7 @@ ProcessOtherEvent(InternalEvent *ev, DeviceIntPtr device)
     b = device->button;
     k = device->key;
 
-    if (IsMaster(device) || !device->u.master)
+    if (IsMaster(device) || IsFloating(device))
         CheckMotion(event, device);
 
     switch (event->type)
@@ -1050,10 +1050,8 @@ ProcessOtherEvent(InternalEvent *ev, DeviceIntPtr device)
     switch(event->type)
     {
         case ET_KeyPress:
-            if (!grab && CheckDeviceGrabs(device, event, 0)) {
-                device->deviceGrab.activatingKey = key;
+            if (!grab && CheckDeviceGrabs(device, event, 0))
                 return;
-            }
             break;
         case ET_KeyRelease:
             if (grab && device->deviceGrab.fromPassiveGrab &&
@@ -1116,6 +1114,7 @@ InitProximityClassDeviceStruct(DeviceIntPtr dev)
     if (!proxc)
 	return FALSE;
     proxc->sourceid = dev->id;
+    proxc->in_proximity = TRUE;
     dev->proximity = proxc;
     return TRUE;
 }
@@ -1131,7 +1130,7 @@ InitProximityClassDeviceStruct(DeviceIntPtr dev)
  */
 void
 InitValuatorAxisStruct(DeviceIntPtr dev, int axnum, Atom label, int minval, int maxval,
-		       int resolution, int min_res, int max_res)
+		       int resolution, int min_res, int max_res, int mode)
 {
     AxisInfoPtr ax;
 
@@ -1148,6 +1147,10 @@ InitValuatorAxisStruct(DeviceIntPtr dev, int axnum, Atom label, int minval, int 
     ax->min_resolution = min_res;
     ax->max_resolution = max_res;
     ax->label = label;
+    ax->mode = mode;
+
+    if (mode & OutOfProximity)
+        dev->proximity->in_proximity = FALSE;
 }
 
 static void
@@ -1176,7 +1179,7 @@ FixDeviceStateNotify(DeviceIntPtr dev, deviceStateNotify * ev, KeyClassPtr k,
 	int nval = v->numAxes - first;
 
 	ev->classes_reported |= (1 << ValuatorClass);
-	ev->classes_reported |= (dev->valuator->mode << ModeBitsShift);
+	ev->classes_reported |= valuator_get_mode(dev, 0) << ModeBitsShift;
 	ev->num_valuators = nval < 3 ? nval : 3;
 	switch (ev->num_valuators) {
 	case 3:
@@ -1221,7 +1224,7 @@ DeviceFocusEvent(DeviceIntPtr dev, int type, int mode, int detail,
     DeviceIntPtr mouse;
     int btlen, len, i;
 
-    mouse = (IsMaster(dev) || dev->u.master) ? GetMaster(dev, MASTER_POINTER) : dev;
+    mouse = IsFloating(dev) ? dev : GetMaster(dev, MASTER_POINTER);
 
     /* XI 2 event */
     btlen = (mouse->button) ? bits_to_bytes(mouse->button->numButtons) : 0;
@@ -1259,7 +1262,8 @@ DeviceFocusEvent(DeviceIntPtr dev, int type, int mode, int detail,
         xi2event->group.effective_group = dev->key->xkbInfo->state.group;
     }
 
-    FixUpEventFromWindow(dev, (xEvent*)xi2event, pWin, None, FALSE);
+    FixUpEventFromWindow(dev->spriteInfo->sprite, (xEvent*)xi2event, pWin,
+                         None, FALSE);
 
     DeliverEventsToWindow(dev, pWin, (xEvent*)xi2event, 1,
                           GetEventFilter(dev, (xEvent*)xi2event), NullGrab);
@@ -1277,7 +1281,7 @@ DeviceFocusEvent(DeviceIntPtr dev, int type, int mode, int detail,
     DeliverEventsToWindow(dev, pWin, (xEvent *) & event, 1,
 				DeviceFocusChangeMask, NullGrab);
 
-    if ((type == DeviceFocusIn) &&
+    if ((event.type == DeviceFocusIn) &&
 	(wOtherInputMasks(pWin)) &&
 	(wOtherInputMasks(pWin)->inputEvents[dev->id] & DeviceStateNotifyMask))
     {

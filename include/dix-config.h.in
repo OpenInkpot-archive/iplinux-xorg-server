@@ -243,6 +243,9 @@
 /* Define to 1 if you have the `vprintf' function. */
 #undef HAVE_VPRINTF
 
+/* Define to 1 if you have the `vasprintf' function. */
+#undef HAVE_VASPRINTF
+
 /* Support IPv6 for TCP connections */
 #undef IPv6
 
@@ -275,6 +278,9 @@
 
 /* Support X resource extension */
 #undef RES
+
+/* Support client ID tracking in X resource extension */
+#undef CLIENTIDS
 
 /* Support MIT-SCREEN-SAVER extension */
 #undef SCREENSAVER

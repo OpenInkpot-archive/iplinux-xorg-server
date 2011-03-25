@@ -76,7 +76,6 @@ miModifyPixmapHeader(PixmapPtr pPixmap, int width, int height, int depth,
 	pPixmap->drawable.depth = depth;
 	pPixmap->drawable.bitsPerPixel = bitsPerPixel;
 	pPixmap->drawable.id = 0;
-	pPixmap->drawable.serialNumber = NEXT_SERIAL_NUMBER;
 	pPixmap->drawable.x = 0;
 	pPixmap->drawable.y = 0;
 	pPixmap->drawable.width = width;
@@ -116,6 +115,7 @@ miModifyPixmapHeader(PixmapPtr pPixmap, int width, int height, int depth,
 	if (pPixData)
 	    pPixmap->devPrivate.ptr = pPixData;
     }
+    pPixmap->drawable.serialNumber = NEXT_SERIAL_NUMBER;
     return TRUE;
 }
 
@@ -269,8 +269,6 @@ miScreenInit(
     pScreen->wakeupData = (pointer)0;
     pScreen->MarkWindow = miMarkWindow;
     pScreen->MarkOverlappedWindows = miMarkOverlappedWindows;
-    pScreen->ChangeSaveUnder = NULL;
-    pScreen->PostChangeSaveUnder = NULL;
     pScreen->MoveWindow = miMoveWindow;
     pScreen->ResizeWindow = miSlideAndSizeWindow;
     pScreen->GetLayerWindow = miGetLayerWindow;
@@ -280,27 +278,9 @@ miScreenInit(
     pScreen->SetShape = miSetShape;
     pScreen->MarkUnrealizedWindow = miMarkUnrealizedWindow;
 
-    pScreen->SaveDoomedAreas = 0;
-    pScreen->RestoreAreas = 0;
-    pScreen->ExposeCopy = 0;
-    pScreen->TranslateBackingStore = 0;
-    pScreen->ClearBackingStore = 0;
-    pScreen->DrawGuarantee = 0;
-
     miSetZeroLineBias(pScreen, DEFAULTZEROLINEBIAS);
 
     return miScreenDevPrivateInit(pScreen, width, pbits);
-}
-
-static DevPrivateKeyRec privateKeyRec;
-#define privateKey (&privateKeyRec)
-
-DevPrivateKey
-miAllocateGCPrivateIndex(void)
-{
-    if (!dixRegisterPrivateKey(&privateKeyRec, PRIVATE_GC, 0))
-	return NULL;
-    return privateKey;
 }
 
 DevPrivateKeyRec miZeroLineScreenKeyRec;

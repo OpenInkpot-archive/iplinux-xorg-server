@@ -159,8 +159,7 @@ exaPixmapDirty (PixmapPtr pPix, int x1, int y1, int x2, int y2)
 	return;
 
     RegionInit(&region, &box, 1);
-    DamageRegionAppend(&pPix->drawable, &region);
-    DamageRegionProcessPending(&pPix->drawable);
+    DamageDamageRegion(&pPix->drawable, &region);
     RegionUninit(&region);
 }
 
@@ -422,7 +421,8 @@ exaFinishAccess(DrawablePtr pDrawable, int index)
     /* We always hide the devPrivate.ptr. */
     pPixmap->devPrivate.ptr = NULL;
 
-    if (!pExaScr->info->FinishAccess || !exaPixmapHasGpuCopy(pPixmap))
+    /* Only call FinishAccess if PrepareAccess was called and succeeded. */
+    if (!pExaScr->info->FinishAccess || !pExaScr->access[i].retval)
 	return;
 
     if (i >= EXA_PREPARE_AUX_DEST &&
@@ -434,6 +434,29 @@ exaFinishAccess(DrawablePtr pDrawable, int index)
 
     (*pExaScr->info->FinishAccess) (pPixmap, i);
 }
+
+
+/**
+ * Helper for things common to all schemes when a pixmap is destroyed
+ */
+void
+exaDestroyPixmap(PixmapPtr pPixmap)
+{
+    ExaScreenPriv(pPixmap->drawable.pScreen);
+    int i;
+
+    /* Finish access if it was prepared (e.g. pixmap created during
+     * software fallback)
+     */
+    for (i = 0; i < EXA_NUM_PREPARE_INDICES; i++) {
+	if (pExaScr->access[i].pixmap == pPixmap) {
+	    exaFinishAccess(&pPixmap->drawable, i);
+	    pExaScr->access[i].pixmap = NULL;
+	    break;
+	}
+    }
+}
+
 
 /**
  * Here begins EXA's GC code.

@@ -372,8 +372,6 @@ xf86PrintBacktrace(void)
     xorg_backtrace();
 }
 
-#define KeyPressed(k) (keyc->postdown[k >> 3] & (1 << (k & 7)))
-
 static void
 xf86ReleaseKeys(DeviceIntPtr pDev)
 {
@@ -399,7 +397,7 @@ xf86ReleaseKeys(DeviceIntPtr pDev)
     for (i = keyc->xkbInfo->desc->min_key_code;
          i < keyc->xkbInfo->desc->max_key_code;
          i++) {
-        if (KeyPressed(i)) {
+        if (key_is_down(pDev, i, KEY_POSTED)) {
             sigstate = xf86BlockSIGIO ();
             nevents = GetKeyboardEvents(xf86Events, pDev, KeyRelease, i);
             for (j = 0; j < nevents; j++)
@@ -416,7 +414,8 @@ xf86ReleaseKeys(DeviceIntPtr pDev)
 static void
 xf86VTSwitch(void)
 {
-  int i, prevSIGIO;
+  int i;
+  static int prevSIGIO;
   InputInfoPtr pInfo;
   IHPtr ih;
 
@@ -458,7 +457,8 @@ xf86VTSwitch(void)
           DisableDevice(pInfo->dev, TRUE);
       }
     }
-    xf86EnterServerState(SETUP);
+
+    prevSIGIO = xf86BlockSIGIO();
     for (i = 0; i < xf86NumScreens; i++)
 	xf86Screens[i]->LeaveVT(i, 0);
 
@@ -470,14 +470,11 @@ xf86VTSwitch(void)
        */
 
       DebugF("xf86VTSwitch: Leave failed\n");
-      prevSIGIO = xf86BlockSIGIO();
       xf86AccessEnter();
-      xf86EnterServerState(SETUP);
       for (i = 0; i < xf86NumScreens; i++) {
 	if (!xf86Screens[i]->EnterVT(i, 0))
 	  FatalError("EnterVT failed for screen %d\n", i);
       }
-      xf86EnterServerState(OPERATING);
       if (!(dispatchException & DE_TERMINATE)) {
 	for (i = 0; i < xf86NumScreens; i++) {
 	  if (xf86Screens[i]->EnableDisableFBAccess)
@@ -515,11 +512,9 @@ xf86VTSwitch(void)
 	    xf86DisableIO();
     }
   } else {
-
     DebugF("xf86VTSwitch: Entering\n");
     if (!xf86VTSwitchTo()) return;
 
-    prevSIGIO = xf86BlockSIGIO();
 #ifdef XF86PM
     xf86OSPMClose = xf86OSPMOpen();
 #endif
@@ -527,13 +522,11 @@ xf86VTSwitch(void)
     if (xorgHWAccess)
 	xf86EnableIO();
     xf86AccessEnter();
-    xf86EnterServerState(SETUP);
     for (i = 0; i < xf86NumScreens; i++) {
       xf86Screens[i]->vtSema = TRUE;
       if (!xf86Screens[i]->EnterVT(i, 0))
 	  FatalError("EnterVT failed for screen %d\n", i);
     }
-    xf86EnterServerState(OPERATING);
     for (i = 0; i < xf86NumScreens; i++) {
       if (xf86Screens[i]->EnableDisableFBAccess)
 	(*xf86Screens[i]->EnableDisableFBAccess)(i, TRUE);
@@ -600,6 +593,26 @@ xf86AddGeneralHandler(int fd, InputHandlerProc proc, pointer data)
     if (ih)
         AddGeneralSocket(fd);
     return ih;
+}
+
+/**
+ * Set the handler for the console's fd. Replaces (and returns) the previous
+ * handler or NULL, whichever appropriate.
+ * proc may be NULL if the server should not handle events on the console.
+ */
+InputHandlerProc
+xf86SetConsoleHandler(InputHandlerProc proc, pointer data)
+{
+    static InputHandlerProc handler = NULL;
+    InputHandlerProc old_handler = handler;
+
+    if (old_handler)
+        xf86RemoveGeneralHandler(old_handler);
+
+    xf86AddGeneralHandler(xf86Info.consoleFd, proc, data);
+    handler = proc;
+
+    return old_handler;
 }
 
 static void

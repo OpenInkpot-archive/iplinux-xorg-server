@@ -58,7 +58,6 @@ device_added(struct udev_device *udev_device)
     char *config_info = NULL;
     const char *syspath;
     const char *tags_prop;
-    const char *usb_vendor = NULL, *usb_model = NULL;
     const char *key, *value, *tmp;
     InputOption *options = NULL, *tmpo;
     InputAttributes attrs = {};
@@ -94,6 +93,9 @@ device_added(struct udev_device *udev_device)
     parent = udev_device_get_parent(udev_device);
     if (parent) {
         const char *ppath = udev_device_get_devnode(parent);
+        const char *product = udev_device_get_property_value(parent, "PRODUCT");
+        const char *pnp_id = udev_device_get_sysattr_value(parent, "id");
+        unsigned int usb_vendor, usb_model;
 
         name = udev_device_get_sysattr_value(parent, "name");
         LOG_SYSATTR(ppath, "name", name);
@@ -102,26 +104,38 @@ device_added(struct udev_device *udev_device)
             LOG_PROPERTY(ppath, "NAME", name);
         }
 
-        attrs.pnp_id = udev_device_get_sysattr_value(parent, "id");
-        LOG_SYSATTR(ppath, "id", attrs.pnp_id);
+        if (pnp_id)
+            attrs.pnp_id = strdup(pnp_id);
+        LOG_SYSATTR(ppath, "id", pnp_id);
+
+        /* construct USB ID in lowercase hex - "0000:ffff" */
+        if (product && sscanf(product, "%*x/%4x/%4x/%*x", &usb_vendor, &usb_model) == 2) {
+            if (asprintf(&attrs.usb_id, "%04x:%04x", usb_vendor, usb_model)
+                == -1)
+                attrs.usb_id = NULL;
+            else
+                LOG_PROPERTY(path, "PRODUCT", product);
+        }
     }
     if (!name)
         name = "(unnamed)";
     else
-        attrs.product = name;
+        attrs.product = strdup(name);
     add_option(&options, "name", name);
 
     add_option(&options, "path", path);
     add_option(&options, "device", path);
-    attrs.device = path;
+    if (path)
+        attrs.device = strdup(path);
 
     tags_prop = udev_device_get_property_value(udev_device, "ID_INPUT.tags");
     LOG_PROPERTY(path, "ID_INPUT.tags", tags_prop);
     attrs.tags = xstrtokenize(tags_prop, ",");
 
-    config_info = Xprintf("udev:%s", syspath);
-    if (!config_info)
+    if (asprintf(&config_info, "udev:%s", syspath) == -1) {
+        config_info = NULL;
         goto unwind;
+    }
 
     if (device_is_duplicate(config_info)) {
         LogMessage(X_WARNING, "config/udev: device %s already added. "
@@ -151,13 +165,7 @@ device_added(struct udev_device *udev_device)
                 add_option(&options, "xkb_options", value);
         } else if (!strcmp(key, "ID_VENDOR")) {
             LOG_PROPERTY(path, key, value);
-            attrs.vendor = value;
-        } else if (!strcmp(key, "ID_VENDOR_ID")) {
-            LOG_PROPERTY(path, key, value);
-            usb_vendor = value;
-        } else if (!strcmp(key, "ID_VENDOR_MODEL")) {
-            LOG_PROPERTY(path, key, value);
-            usb_model = value;
+            attrs.vendor = strdup(value);
         } else if (!strcmp(key, "ID_INPUT_KEY")) {
             LOG_PROPERTY(path, key, value);
             attrs.flags |= ATTR_KEYBOARD;
@@ -179,15 +187,7 @@ device_added(struct udev_device *udev_device)
         }
     }
 
-    /* construct USB ID in lowercase hex - "0000:ffff" */
-    if (usb_vendor && usb_model) {
-        attrs.usb_id = Xprintf("%s:%s", usb_vendor, usb_model);
-        if (attrs.usb_id) {
-            char *cur;
-            for (cur = attrs.usb_id; *cur; cur++)
-                *cur = tolower(*cur);
-        }
-    }
+    add_option(&options, "config_info", config_info);
 
     LogMessage(X_INFO, "config/udev: Adding input device %s (%s)\n",
                name, path);
@@ -195,21 +195,20 @@ device_added(struct udev_device *udev_device)
     if (rc != Success)
         goto unwind;
 
-    for (; dev; dev = dev->next) {
-        free(dev->config_info);
-        dev->config_info = strdup(config_info);
-    }
-
  unwind:
     free(config_info);
-    while (!dev && (tmpo = options)) {
+    while ((tmpo = options)) {
         options = tmpo->next;
-        free(tmpo->key);
-        free(tmpo->value);
+        free(tmpo->key);        /* NULL if dev != NULL */
+        free(tmpo->value);      /* NULL if dev != NULL */
         free(tmpo);
     }
 
     free(attrs.usb_id);
+    free(attrs.pnp_id);
+    free(attrs.product);
+    free(attrs.device);
+    free(attrs.vendor);
     if (attrs.tags) {
         char **tag = attrs.tags;
         while (*tag) {
@@ -228,8 +227,7 @@ device_removed(struct udev_device *device)
     char *value;
     const char *syspath = udev_device_get_syspath(device);
 
-    value = Xprintf("udev:%s", syspath);
-    if (!value)
+    if (asprintf(&value, "udev:%s", syspath) == -1)
         return;
 
     remove_devices("udev", value);
@@ -316,7 +314,7 @@ config_udev_fini(void)
     udev = udev_monitor_get_udev(udev_monitor);
 
     RemoveGeneralSocket(udev_monitor_get_fd(udev_monitor));
-    RemoveBlockAndWakeupHandlers(block_handler, wakeup_handler, udev_monitor);
+    RemoveBlockAndWakeupHandlers(block_handler, wakeup_handler, NULL);
     udev_monitor_unref(udev_monitor);
     udev_monitor = NULL;
     udev_unref(udev);

@@ -103,7 +103,10 @@ typedef struct _OtherClients *OtherClientsPtr;
 typedef struct _InputClients *InputClientsPtr;
 typedef struct _DeviceIntRec *DeviceIntPtr;
 typedef struct _ClassesRec *ClassesPtr;
+typedef struct _SpriteRec *SpritePtr;
 typedef union _GrabMask GrabMask;
+
+typedef struct _ValuatorMask ValuatorMask;
 
 typedef struct _EventList {
     xEvent* event;
@@ -140,14 +143,17 @@ typedef void (*DeviceUnwrapProc)(
 
 /* pointer acceleration handling */
 typedef void (*PointerAccelSchemeProc)(
-    DeviceIntPtr /*pDev*/,
-    int /*first_valuator*/,
-    int /*num_valuators*/,
-    int* /*valuators*/,
-    int /*evtime*/);
+    DeviceIntPtr /*device*/,
+    ValuatorMask* /*valuators*/,
+    CARD32 /*evtime*/);
 
 typedef void (*DeviceCallbackProc)(
               DeviceIntPtr /*pDev*/);
+
+struct _ValuatorAccelerationRec;
+typedef Bool (*PointerAccelSchemeInitProc)(
+              DeviceIntPtr /*dev*/,
+              struct _ValuatorAccelerationRec* /*protoScheme*/);
 
 typedef struct _DeviceRec {
     pointer	devicePrivate;
@@ -228,14 +234,19 @@ typedef struct _InputAttributes {
 #define ATTR_TOUCHPAD (1<<4)
 #define ATTR_TOUCHSCREEN (1<<5)
 
-/* Key has been run through all input processing and events sent to clients. */
+/* Key/Button has been run through all input processing and events sent to clients. */
 #define KEY_PROCESSED 1
-/* Key has not been fully processed, no events have been sent. */
+#define BUTTON_PROCESSED 1
+/* Key/Button has not been fully processed, no events have been sent. */
 #define KEY_POSTED 2
+#define BUTTON_POSTED 2
 
 extern void set_key_down(DeviceIntPtr pDev, int key_code, int type);
 extern void set_key_up(DeviceIntPtr pDev, int key_code, int type);
 extern int key_is_down(DeviceIntPtr pDev, int key_code, int type);
+extern void set_button_down(DeviceIntPtr pDev, int button, int type);
+extern void set_button_up(DeviceIntPtr pDev, int button, int type);
+extern int button_is_down(DeviceIntPtr pDev, int button, int type);
 
 extern void InitCoreDevices(void);
 extern void InitXTestDevices(void);
@@ -268,12 +279,6 @@ extern _X_EXPORT int RemoveDevice(
     BOOL /* sendevent */);
 
 extern _X_EXPORT int NumMotionEvents(void);
-
-extern void RegisterPointerDevice(
-    DeviceIntPtr /*device*/);
-
-extern void RegisterKeyboardDevice(
-    DeviceIntPtr /*device*/);
 
 extern _X_EXPORT int dixLookupDevice(
     DeviceIntPtr *         /* dev */,
@@ -434,15 +439,19 @@ extern void CreateClassesChangedEvent(EventListPtr event,
                                       DeviceIntPtr master,
                                       DeviceIntPtr slave,
                                       int type);
+extern EventListPtr UpdateFromMaster(
+    EventListPtr events,
+    DeviceIntPtr pDev,
+    int type,
+    int *num_events);
+
 extern _X_EXPORT int GetPointerEvents(
     EventListPtr events,
     DeviceIntPtr pDev,
     int type,
     int buttons,
     int flags,
-    int first_valuator,
-    int num_valuators,
-    int *valuators);
+    const ValuatorMask *mask);
 
 extern _X_EXPORT int GetKeyboardEvents(
     EventListPtr events,
@@ -455,17 +464,13 @@ extern int GetKeyboardValuatorEvents(
     DeviceIntPtr pDev,
     int type,
     int key_code,
-    int first_valuator,
-    int num_valuator,
-    int *valuators);
+    const ValuatorMask *mask);
 
 extern int GetProximityEvents(
     EventListPtr events,
     DeviceIntPtr pDev,
     int type,
-    int first_valuator,
-    int num_valuators,
-    int *valuators);
+    const ValuatorMask *mask);
 
 extern void PostSyntheticMotion(
     DeviceIntPtr pDev,
@@ -524,13 +529,28 @@ extern _X_EXPORT InputAttributes *DuplicateInputAttributes(InputAttributes *attr
 extern _X_EXPORT void FreeInputAttributes(InputAttributes *attrs);
 
 /* misc event helpers */
+extern Mask GetEventMask(DeviceIntPtr dev, xEvent* ev, InputClientsPtr clients);
 extern Mask GetEventFilter(DeviceIntPtr dev, xEvent *event);
 extern Mask GetWindowXI2Mask(DeviceIntPtr dev, WindowPtr win, xEvent* ev);
-void FixUpEventFromWindow(DeviceIntPtr pDev,
+void FixUpEventFromWindow(SpritePtr pSprite,
                           xEvent *xE,
                           WindowPtr pWin,
                           Window child,
                           Bool calcChild);
+extern WindowPtr XYToWindow(SpritePtr pSprite, int x, int y);
+extern int EventIsDeliverable(DeviceIntPtr dev, InternalEvent* event,
+                              WindowPtr win);
+/**
+ * Masks specifying the type of event to deliver for an InternalEvent; used
+ * by EventIsDeliverable.
+ * @defgroup EventIsDeliverable return flags
+ * @{
+ */
+#define EVENT_XI1_MASK                (1 << 0) /**< XI1.x event */
+#define EVENT_CORE_MASK               (1 << 1) /**< Core event */
+#define EVENT_DONT_PROPAGATE_MASK     (1 << 2) /**< DontPropagate mask set */
+#define EVENT_XI2_MASK                (1 << 3) /**< XI2 mask set on window */
+/* @} */
 
 /* Implemented by the DDX. */
 extern _X_EXPORT int NewInputDeviceRequest(
@@ -545,8 +565,29 @@ extern _X_EXPORT void DDXRingBell(
     int pitch,
     int duration);
 
+#define VALUATOR_MODE_ALL_AXES -1
+extern _X_HIDDEN int valuator_get_mode(DeviceIntPtr dev, int axis);
+extern _X_HIDDEN void valuator_set_mode(DeviceIntPtr dev, int axis, int mode);
+
 /* Set to TRUE by default - os/utils.c sets it to FALSE on user request,
    xfixes/cursor.c uses it to determine if the cursor is enabled */
 extern Bool EnableCursor;
+
+extern _X_EXPORT ValuatorMask  *valuator_mask_new(int num_valuators);
+extern _X_EXPORT void valuator_mask_free(ValuatorMask **mask);
+extern _X_EXPORT void valuator_mask_set_range(ValuatorMask *mask,
+                                       int first_valuator, int num_valuators,
+                                       const int* valuators);
+extern _X_EXPORT void valuator_mask_set(ValuatorMask *mask,
+                                        int valuator,
+                                        int data);
+extern _X_EXPORT void valuator_mask_zero(ValuatorMask *mask);
+extern _X_EXPORT int valuator_mask_size(const ValuatorMask *mask);
+extern _X_EXPORT int valuator_mask_isset(const ValuatorMask *mask, int bit);
+extern _X_EXPORT void valuator_mask_unset(ValuatorMask *mask, int bit);
+extern _X_EXPORT int valuator_mask_num_valuators(const ValuatorMask *mask);
+extern _X_EXPORT void valuator_mask_copy(ValuatorMask *dest,
+                                         const ValuatorMask *src);
+extern _X_EXPORT int valuator_mask_get(const ValuatorMask *mask, int valnum);
 
 #endif /* INPUT_H */

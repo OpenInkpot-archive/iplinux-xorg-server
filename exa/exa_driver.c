@@ -115,6 +115,8 @@ exaCreatePixmap_driver(ScreenPtr pScreen, int w, int h, int depth,
     exaSetAccelBlock(pExaScr, pExaPixmap,
                      w, h, bpp);
 
+    pExaPixmap->use_gpu_copy = exaPixmapHasGpuCopy(pPixmap);
+
     /* During a fallback we must prepare access. */
     if (pExaScr->fallback_counter)
 	exaPrepareAccess(&pPixmap->drawable, EXA_PREPARE_AUX_DEST);
@@ -193,9 +195,7 @@ exaDestroyPixmap_driver (PixmapPtr pPixmap)
     {
 	ExaPixmapPriv (pPixmap);
 
-	/* During a fallback we must finish access, but we don't know the index. */
-	if (pExaScr->fallback_counter)
-	    exaFinishAccess(&pPixmap->drawable, -1);
+	exaDestroyPixmap(pPixmap);
 
 	if (pExaPixmap->driverPriv)
 	    pExaScr->info->DestroyPixmap(pScreen, pExaPixmap->driverPriv);

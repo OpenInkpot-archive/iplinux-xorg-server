@@ -51,15 +51,10 @@ extern Bool no_configure_window;
 #include "rootlessCommon.h"
 #include "rootlessWindow.h"
 
-#ifdef ROOTLESS_GLOBAL_COORDS
 #define SCREEN_TO_GLOBAL_X \
     (pScreen->x + rootlessGlobalOffsetX)
 #define SCREEN_TO_GLOBAL_Y \
     (pScreen->y + rootlessGlobalOffsetY)
-#else
-#define SCREEN_TO_GLOBAL_X 0
-#define SCREEN_TO_GLOBAL_Y 0
-#endif
 
 #define DEFINE_ATOM_HELPER(func,atom_name)                      \
   static Atom func (void) {                                       \
@@ -180,11 +175,6 @@ static void
 RootlessDestroyFrame(WindowPtr pWin, RootlessWindowPtr winRec)
 {
     SCREENREC(pWin->drawable.pScreen)->imp->DestroyFrame(winRec->wid);
-
-#ifdef ROOTLESS_TRACK_DAMAGE
-    RegionUninit(&winRec->damage);
-#endif
-
     free(winRec);
     SETWINREC(pWin, NULL);
 }
@@ -341,15 +331,6 @@ RootlessPositionWindow(WindowPtr pWin, int x, int y)
 
             winRec->pixmap->devPrivate.ptr = winRec->pixelData;
             SetPixmapBaseToScreen(winRec->pixmap, x - bw, y - bw);
-
-#ifdef ROOTLESS_TRACK_DAMAGE
-            // Move damaged region to correspond to new window position
-            if (RegionNotEmpty(&winRec->damage)) {
-                RegionTranslate(&winRec->damage,
-                                 x - bw - winRec->x,
-                                 y - bw - winRec->y);
-            }
-#endif
         }
     }
 
@@ -381,10 +362,6 @@ RootlessInitializeFrame(WindowPtr pWin, RootlessWindowRec *winRec)
     winRec->width = d->width + 2*bw;
     winRec->height = d->height + 2*bw;
     winRec->borderWidth = bw;
-
-#ifdef ROOTLESS_TRACK_DAMAGE
-    RegionNull(&winRec->damage);
-#endif
 }
 
 /*
@@ -581,10 +558,15 @@ RootlessReorderWindow(WindowPtr pWin)
 
         RootlessStopDrawing(pWin, FALSE);
 
-        /* Find the next window above this one that has a mapped frame. */
+        /* Find the next window above this one that has a mapped frame. 
+         * Only include cases where the windows are in the same category of
+         * hittability to ensure offscreen windows dont get restacked
+         * relative to onscreen ones (but that the offscreen ones maintain
+         * their stacking order if they are explicitly asked to Reorder
+         */
 
         newPrevW = pWin->prevSib;
-        while (newPrevW && (WINREC(newPrevW) == NULL || !newPrevW->realized))
+        while (newPrevW && (WINREC(newPrevW) == NULL || !newPrevW->realized || newPrevW->rootlessUnhittable != pWin->rootlessUnhittable))
             newPrevW = newPrevW->prevSib;
 
         newPrev = newPrevW != NULL ? WINREC(newPrevW) : NULL;
@@ -1158,10 +1140,8 @@ FinishFrameResize(WindowPtr pWin, Bool gravity, int oldX, int oldY,
         }
     }
 
-    if (gResizeDeathBits != NULL) {
-        free(gResizeDeathBits);
-        gResizeDeathBits = NULL;
-    }
+    free(gResizeDeathBits);
+    gResizeDeathBits = NULL;
 
     if (gravity) {
         pScreen->CopyWindow = gResizeOldCopyWindowProc;
@@ -1314,6 +1294,13 @@ RootlessResizeWindow(WindowPtr pWin, int x, int y,
         RegionCopy(&pWin->borderSize, &pWin->winSize);
         RegionCopy(&pWin->clipList, &pWin->winSize);
         RegionCopy(&pWin->borderClip, &pWin->winSize);
+
+        if (winRec) {
+            SCREENREC(pScreen)->imp->ResizeFrame(winRec->wid, pScreen,
+                                                 x + SCREEN_TO_GLOBAL_X,
+                                                 y + SCREEN_TO_GLOBAL_Y,
+                                                 w, h, RL_GRAVITY_NONE);
+        }
 
         miSendExposures(pWin, &pWin->borderClip,
                         pWin->drawable.x, pWin->drawable.y);        
@@ -1495,7 +1482,7 @@ RootlessChangeBorderWidth(WindowPtr pWin, unsigned int width)
  * (i.e in front of Aqua windows) -- called when X11.app is given focus
  */
 void
-RootlessOrderAllWindows (void)
+RootlessOrderAllWindows (Bool include_unhitable)
 {
     int i;
     WindowPtr pWin;
@@ -1512,6 +1499,7 @@ RootlessOrderAllWindows (void)
       for (pWin = pWin->firstChild; pWin != NULL; pWin = pWin->nextSib) {
 	if (!pWin->realized) continue;
 	if (RootlessEnsureFrame(pWin) == NULL) continue;
+        if (!include_unhitable && pWin->rootlessUnhittable) continue;
 	RootlessReorderWindow (pWin);
       }
     }

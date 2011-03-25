@@ -125,6 +125,7 @@ typedef struct _connectionInput {
     int  bufcnt;                /* count of bytes in buffer */
     int lenLastReq;
     int size;
+    unsigned int ignoreBytes;   /* bytes to ignore before the next request */
 } ConnectionInput, *ConnectionInputPtr;
 
 typedef struct _connectionOutput {
@@ -171,6 +172,7 @@ typedef struct _osComm {
     XID	auth_id;		/* authorization id */
     CARD32 conn_time;		/* timestamp if not established, else 0  */
     struct _XtransConnInfo *trans_conn; /* transport connection object */
+    Bool local_client;
 } OsCommRec, *OsCommPtr;
 
 extern int FlushClient(
@@ -215,6 +217,9 @@ typedef long int fd_mask;
 #endif
 #define ffs mffs
 extern int mffs(fd_mask);
+
+/* in access.c */
+extern Bool ComputeLocalClient(ClientPtr client);
 
 /* in auth.c */
 extern void GenerateRandomData (int len, char *buf);

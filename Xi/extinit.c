@@ -358,7 +358,7 @@ int ChangeDeviceNotify;
 int DevicePresenceNotify;
 int DevicePropertyNotify;
 
-int RT_INPUTCLIENT;
+RESTYPE RT_INPUTCLIENT;
 
 /*****************************************************************
  *
@@ -757,6 +757,7 @@ static void SDeviceEvent(xXIDeviceEvent *from, xXIDeviceEvent *to)
     swapl(&to->mods.latched_mods, n);
     swapl(&to->mods.locked_mods, n);
     swapl(&to->mods.effective_mods, n);
+    swapl(&to->flags, n);
 
     ptr = (char*)(&to[1]);
     ptr += from->buttons_len * 4;
@@ -1120,8 +1121,6 @@ RestoreExtensionEvents(void)
 static void
 IResetProc(ExtensionEntry * unused)
 {
-    XIResetProperties();
-
     ReplySwapVector[IReqCode] = ReplyNotSwappd;
     EventSwapVector[DeviceValuator] = NotImplemented;
     EventSwapVector[DeviceKeyPress] = NotImplemented;
@@ -1154,8 +1153,7 @@ void
 AssignTypeAndName(DeviceIntPtr dev, Atom type, char *name)
 {
     dev->xinput_type = type;
-    dev->name = (char *)malloc(strlen(name) + 1);
-    strcpy(dev->name, name);
+    dev->name = strdup(name);
 }
 
 /***********************************************************************
@@ -1302,6 +1300,8 @@ XInputExtensionInit(void)
 
 	inputInfo.all_devices = &xi_all_devices;
 	inputInfo.all_master_devices = &xi_all_master_devices;
+
+	XIResetProperties();
     } else {
 	FatalError("IExtensionInit: AddExtensions failed\n");
     }

@@ -53,7 +53,7 @@
 
 static DevPrivateKeyRec DGAScreenKeyRec;
 #define DGAScreenKeyRegistered dixPrivateKeyRegistered(&DGAScreenKeyRec)
-static int mieq_installed = 0;
+static Bool mieq_installed;
 
 static Bool DGACloseScreen(int i, ScreenPtr pScreen);
 static void DGADestroyColormap(ColormapPtr pmap);
@@ -250,9 +250,10 @@ DGACloseScreen(int i, ScreenPtr pScreen)
 {
    DGAScreenPtr pScreenPriv = DGA_GET_SCREEN_PRIV(pScreen);
 
-   if (XDGAEventBase) {
+   if (mieq_installed) {
        mieqSetHandler(ET_DGAEvent, NULL);
-    }
+       mieq_installed = FALSE;
+   }
 
    FreeMarkedVisuals(pScreen);
 
@@ -446,6 +447,11 @@ xf86SetDGAMode(
    pScreenPriv->grabMouse = TRUE;
    pScreenPriv->grabKeyboard = TRUE;
 
+   if (!mieq_installed) {
+      mieqSetHandler(ET_DGAEvent, DGAHandleEvent);
+      mieq_installed = TRUE;
+   }
+
    return Success;
 }
 
@@ -466,7 +472,7 @@ DGASetInputMode(int index, Bool keyboard, Bool mouse)
 
       if (!mieq_installed) {
           mieqSetHandler(ET_DGAEvent, DGAHandleEvent);
-          mieq_installed = 1;
+          mieq_installed = TRUE;
       }
    }
 }
@@ -936,8 +942,6 @@ DGAStealKeyEvent(DeviceIntPtr dev, int index, int key_code, int is_down)
    return TRUE;
 }  
 
-static int  DGAMouseX, DGAMouseY;
-
 Bool
 DGAStealMotionEvent(DeviceIntPtr dev, int index, int dx, int dy)
 {
@@ -951,17 +955,6 @@ DGAStealMotionEvent(DeviceIntPtr dev, int index, int dx, int dy)
 
    if(!pScreenPriv || !pScreenPriv->grabMouse) /* no direct mode */
         return FALSE;
-
-    DGAMouseX += dx;
-    if (DGAMouseX < 0)
-        DGAMouseX = 0;
-    else if (DGAMouseX > screenInfo.screens[index]->width)
-        DGAMouseX = screenInfo.screens[index]->width;
-    DGAMouseY += dy;
-    if (DGAMouseY < 0)
-        DGAMouseY = 0;
-    else if (DGAMouseY > screenInfo.screens[index]->height)
-        DGAMouseY = screenInfo.screens[index]->height;
 
     memset(&event, 0, sizeof(event));
     event.header = ET_Internal;
@@ -1006,18 +999,6 @@ DGAStealButtonEvent(DeviceIntPtr dev, int index, int button, int is_down)
 
 /* We have the power to steal or modify events that are about to get queued */
 
-Bool
-DGAIsDgaEvent (xEvent *e)
-{
-    int	    coreEquiv;
-    if (!DGAScreenKeyRegistered || XDGAEventBase == 0)
-	return FALSE;
-    coreEquiv = e->u.u.type - *XDGAEventBase;
-    if (KeyPress <= coreEquiv && coreEquiv <= MotionNotify)
-	return TRUE;
-    return FALSE;
-}
-
 #define NoSuchEvent 0x80000000	/* so doesn't match NoEventMask */
 static Mask filters[] =
 {
@@ -1039,6 +1020,7 @@ DGAProcessKeyboardEvent (ScreenPtr pScreen, DGAEvent *event, DeviceIntPtr keybd)
     DeviceEvent     ev;
 
     memset(&ev, 0, sizeof(ev));
+    ev.header = ET_Internal;
     ev.length = sizeof(ev);
     ev.detail.key = event->detail;
     ev.type = event->subtype;
@@ -1058,8 +1040,8 @@ DGAProcessKeyboardEvent (ScreenPtr pScreen, DGAEvent *event, DeviceIntPtr keybd)
         de.u.u.type = *XDGAEventBase + GetCoreType((InternalEvent*)&ev);
         de.u.u.detail = event->detail;
         de.u.event.time = event->time;
-        de.u.event.dx = 0;
-        de.u.event.dy = 0;
+        de.u.event.dx = event->dx;
+        de.u.event.dy = event->dy;
         de.u.event.screen = pScreen->myNum;
         de.u.event.state = ev.corestate;
 
@@ -1095,7 +1077,7 @@ DGAProcessPointerEvent (ScreenPtr pScreen, DGAEvent *event, DeviceIntPtr mouse)
     ev.header = ET_Internal;
     ev.length = sizeof(ev);
     ev.type = event->subtype;
-    ev.corestate  = butc->state;
+    ev.corestate  = butc ? butc->state : 0;
     if (master && master->key)
         ev.corestate |= XkbStateFieldFromRec(&master->key->xkbInfo->state);
 
@@ -1114,8 +1096,8 @@ DGAProcessPointerEvent (ScreenPtr pScreen, DGAEvent *event, DeviceIntPtr mouse)
         de.u.u.type = *XDGAEventBase + coreEquiv;
         de.u.u.detail = event->detail;
         de.u.event.time = event->time;
-        de.u.event.dx = 0;
-        de.u.event.dy = 0;
+        de.u.event.dx = event->dx;
+        de.u.event.dy = event->dy;
         de.u.event.screen = pScreen->myNum;
         de.u.event.state = ev.corestate;
 
@@ -1133,6 +1115,10 @@ DGAProcessPointerEvent (ScreenPtr pScreen, DGAEvent *event, DeviceIntPtr mouse)
             ev.root_x           = event->dx;
             ev.root_y           = event->dy;
             ev.corestate        = event->state;
+            /* DGA is core only, so valuators.data doesn't actually matter.
+             * Mask must be set for EventToCore to create motion events. */
+            SetBit(ev.valuators.mask, 0);
+            SetBit(ev.valuators.mask, 1);
 	    DeliverGrabbedEvent ((InternalEvent*)&ev, mouse, FALSE);
 	}
     }
@@ -1210,6 +1196,9 @@ DGAHandleEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device)
 
     /* DGA not initialized on this screen */
     if (!pScreenPriv)
+	return;
+
+    if (!IsMaster(device))
 	return;
 
     switch (event->subtype) {

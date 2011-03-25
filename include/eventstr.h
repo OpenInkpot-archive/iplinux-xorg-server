@@ -99,7 +99,7 @@ struct _DeviceEvent
     struct {
         uint8_t  mask[(MAX_VALUATORS + 7)/8]; /**< Valuator mask */
         uint8_t  mode[(MAX_VALUATORS + 7)/8]; /**< Valuator mode (Abs or Rel)*/
-        uint32_t data[MAX_VALUATORS];         /**< Valuator data */
+        int32_t  data[MAX_VALUATORS];         /**< Valuator data */
         int32_t  data_frac[MAX_VALUATORS];    /**< Fractional part for data */
     } valuators;
     struct {
@@ -177,7 +177,7 @@ struct _DGAEvent
     Time time;            /**<  Time in ms */
     int subtype;          /**<  KeyPress, KeyRelease, ButtonPress,
                                 ButtonRelease, MotionNotify */
-    int detail;           /**<  Relative x coordinate */
+    int detail;           /**<  Button number or key code */
     int dx;               /**<  Relative x coordinate */
     int dy;               /**<  Relative y coordinate */
     int screen;           /**<  Screen number this event applies to */

@@ -251,7 +251,14 @@ ReadRequestFromClient(ClientPtr client)
     need_header = FALSE;
     move_header = FALSE;
     gotnow = oci->bufcnt + oci->buffer - oci->bufptr;
-    if (gotnow < sizeof(xReq))
+
+    if (oci->ignoreBytes > 0) {
+	if (oci->ignoreBytes > oci->size)
+	    needed = oci->size;
+	else
+	    needed = oci->ignoreBytes;
+    }
+    else if (gotnow < sizeof(xReq))
     {
 	/* We don't have an entire xReq yet.  Can't tell how big
 	 * the request will be until we get the whole xReq.
@@ -294,8 +301,13 @@ ReadRequestFromClient(ClientPtr client)
 	if (needed > maxBigRequestSize << 2)
 	{
 	    /* request is too big for us to handle */
-	    YieldControlDeath();
-	    return -1;
+	    /*
+	     * Mark the rest of it as needing to be ignored, and then return
+	     * the full size.  Dispatch() will turn it into a BadLength error.
+	     */
+	    oci->ignoreBytes = needed - gotnow;
+	    oci->lenLastReq = gotnow;
+	    return needed;
 	}
 	if ((gotnow == 0) ||
 	    ((oci->bufptr - oci->buffer + needed) > oci->size))
@@ -398,6 +410,27 @@ ReadRequestFromClient(ClientPtr client)
 	else
 	    needed = sizeof(xReq);
     }
+
+    /* If there are bytes to ignore, ignore them now. */
+
+    if (oci->ignoreBytes > 0) {
+	assert(needed == oci->ignoreBytes || needed == oci->size);
+	/*
+	 * The _XSERVTransRead call above may return more or fewer bytes than we
+	 * want to ignore.  Ignore the smaller of the two sizes.
+	 */
+	if (gotnow < needed) {
+	    oci->ignoreBytes -= gotnow;
+	    oci->bufptr += gotnow;
+	    gotnow = 0;
+	} else {
+	    oci->ignoreBytes -= needed;
+	    oci->bufptr += needed;
+	    gotnow -= needed;
+	}
+	needed = 0;
+    }
+
     oci->lenLastReq = needed;
 
     /*
@@ -819,6 +852,10 @@ WriteToClient (ClientPtr who, int count, const void *__buf)
 	  CriticalOutputPending = FALSE;
 	  NewOutputPending = FALSE;
 	}
+
+	if (FlushCallback)
+	    CallCallbacks(&FlushCallback, NULL);
+
 	return FlushClient(who, oc, buf, count);
     }
 
@@ -1026,6 +1063,7 @@ AllocateInputBuffer(void)
     oci->bufptr = oci->buffer;
     oci->bufcnt = 0;
     oci->lenLastReq = 0;
+    oci->ignoreBytes = 0;
     return oci;
 }
 

@@ -35,7 +35,7 @@
 #include <dix-config.h>
 #endif
 
-#include "quartzCommon.h"
+#include "quartz.h"
 #include "xpr.h"
 #include "darwin.h"
 #include "darwinEvents.h"
@@ -67,6 +67,7 @@ static Bool
 load_cursor(CursorPtr src, int screen)
 {
     uint32_t *data;
+    Bool free_data = FALSE;
     uint32_t rowbytes;
     int width, height;
     int hot_x, hot_y;
@@ -95,6 +96,7 @@ load_cursor(CursorPtr src, int screen)
         unsigned i;
         rowbytes = src->bits->width * sizeof (CARD32);
         data = malloc(rowbytes * src->bits->height);
+        free_data = TRUE;
         if(!data) {
             FatalError("Failed to allocate memory in %s\n", __func__);
         }
@@ -121,6 +123,7 @@ load_cursor(CursorPtr src, int screen)
         /* round up to 8 pixel boundary so we can convert whole bytes */
         rowbytes = ((src->bits->width * 4) + 31) & ~31;
         data = malloc(rowbytes * src->bits->height);
+        free_data = TRUE;
         if(!data) {
             FatalError("Failed to allocate memory in %s\n", __func__);
         }
@@ -173,7 +176,8 @@ load_cursor(CursorPtr src, int screen)
     }
 
     err = xp_set_cursor(width, height, hot_x, hot_y, data, rowbytes);
-    free(data);
+    if(free_data)
+        free(data);
     return err == Success;
 }
 
@@ -222,7 +226,7 @@ QuartzSetCursor(DeviceIntPtr pDev, ScreenPtr pScreen, CursorPtr pCursor, int x, 
 {
     QuartzCursorScreenPtr ScreenPriv = CURSOR_PRIV(pScreen);
 
-    if (!quartzServerVisible)
+    if (!XQuartzServerVisible)
         return;
 
     if (pCursor == NULL)
@@ -291,7 +295,7 @@ QuartzCrossScreen(ScreenPtr pScreen, Bool entering)
 static void
 QuartzWarpCursor(DeviceIntPtr pDev, ScreenPtr pScreen, int x, int y)
 {
-    if (quartzServerVisible)
+    if (XQuartzServerVisible)
     {
         int sx, sy;
 
