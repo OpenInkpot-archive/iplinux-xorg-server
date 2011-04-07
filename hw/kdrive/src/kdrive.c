@@ -343,6 +343,7 @@ ddxGiveUp (void)
     AbortDDX ();
 }
 
+Bool	kdHwRotation;
 Bool	kdDumbDriver;
 Bool	kdSoftCursor;
 
@@ -391,6 +392,7 @@ KdParseScreen (KdScreenInfo *screen,
     int	    i;
     int	    pixels, mm;
 
+    screen->hwRotation = kdHwRotation;
     screen->dumb = kdDumbDriver;
     screen->softCursor = kdSoftCursor;
     screen->origin = kdOrigin;
@@ -440,6 +442,7 @@ KdParseScreen (KdScreenInfo *screen,
 
     kdOrigin.x += screen->width;
     kdOrigin.y = 0;
+    kdHwRotation = FALSE;
     kdDumbDriver = FALSE;
     kdSoftCursor = FALSE;
     kdSubpixelOrder = SubPixelUnknown;
@@ -536,6 +539,7 @@ KdUseMsg (void)
     ErrorF("-2button         Emulate 3 button mouse\n");
     ErrorF("-3button         Disable 3 button mouse emulation\n");
     ErrorF("-rawcoord        Don't transform pointer coordinates on rotation\n");
+    ErrorF("-hwrotation      Enable hardware screen rotation\n");
     ErrorF("-dumb            Disable hardware acceleration\n");
     ErrorF("-softCursor      Force software cursor\n");
     ErrorF("-videoTest       Start the server, pause momentarily and exit\n");
@@ -594,6 +598,11 @@ KdProcessArgument (int argc, char **argv, int i)
     if (!strcmp (argv[i], "-rawcoord"))
     {
 	kdRawPointerCoordinates = 1;
+	return 1;
+    }
+    if (!strcmp (argv[i], "-hwrotation"))
+    {
+	kdHwRotation = TRUE;
 	return 1;
     }
     if (!strcmp (argv[i], "-dumb"))

@@ -440,6 +440,143 @@ fbdevSetShadow (ScreenPtr pScreen)
 
 #ifdef RANDR
 static Bool
+fbdevRandRGetInfoHW (ScreenPtr pScreen, Rotation *rotations)
+{
+    KdScreenPriv(pScreen);
+    KdScreenInfo	    *screen = pScreenPriv->screen;
+    FbdevScrPriv	    *scrpriv = screen->driver;
+    FbdevPriv		    *priv = pScreenPriv->card->driver;
+    RRScreenSizePtr	    pSize;
+    Rotation		    randr;
+    int			    n;
+
+    *rotations = RR_Rotate_All;
+
+    for (n = 0; n < pScreen->numDepths; n++)
+	if (pScreen->allowedDepths[n].numVids)
+	    break;
+    if (n == pScreen->numDepths)
+	return FALSE;
+
+    pSize = RRRegisterSize (pScreen,
+			    screen->width,
+			    screen->height,
+			    screen->width_mm,
+			    screen->height_mm);
+
+    switch (priv->var.rotate) {
+	case FB_ROTATE_CCW:
+		randr = RR_Rotate_90;
+		break;
+	case FB_ROTATE_UD:
+		randr = RR_Rotate_180;
+		break;
+	case FB_ROTATE_CW:
+		randr = RR_Rotate_270;
+		break;
+	case FB_ROTATE_UR:
+	default:
+		randr = RR_Rotate_0;
+    }
+
+    RRSetCurrentConfig (pScreen, randr, 0, pSize);
+
+    return TRUE;
+}
+
+static Bool
+fbdevRandRSetConfigHW (ScreenPtr	pScreen,
+		     Rotation		randr,
+		     int		rate,
+		     RRScreenSizePtr	pSize)
+{
+    KdScreenPriv(pScreen);
+    KdScreenInfo	*screen = pScreenPriv->screen;
+    FbdevScrPriv	*scrpriv = screen->driver;
+    FbdevPriv		*priv = pScreenPriv->card->driver;
+    Bool		wasEnabled = pScreenPriv->enabled;
+    FbdevScrPriv	oldscr;
+    int			oldwidth;
+    int			oldheight;
+    int			oldmmwidth;
+    int			oldmmheight;
+
+    if (wasEnabled)
+	KdDisableScreen (pScreen);
+
+    oldscr = *scrpriv;
+
+    oldwidth = screen->width;
+    oldheight = screen->height;
+    oldmmwidth = pScreen->mmWidth;
+    oldmmheight = pScreen->mmHeight;
+
+    /*
+     * Set new configuration
+     */
+
+    fbdevUnmapFramebuffer (screen);
+
+    switch (randr) {
+	case RR_Rotate_90:
+		priv->var.rotate = FB_ROTATE_CCW;
+		break;
+	case RR_Rotate_180:
+		priv->var.rotate = FB_ROTATE_UD;
+		break;
+	case RR_Rotate_270:
+		priv->var.rotate = FB_ROTATE_CW;
+		break;
+	default:
+		priv->var.rotate = FB_ROTATE_UR;
+    }
+
+    priv->var.width = pSize->width;
+    priv->var.height = pSize->height;
+
+    /* reconfigure FB */
+    ioctl (priv->fd, FBIOPUT_VSCREENINFO, &priv->var);
+
+    /* fetch new variable and fix info from FB */
+    ioctl (priv->fd, FBIOGET_VSCREENINFO, &priv->var);
+    ioctl (priv->fd, FBIOGET_FSCREENINFO, &priv->fix);
+
+    if (!fbdevMapFramebuffer (screen))
+	goto bail4;
+
+    fbdevSetScreenSizes (screen->pScreen);
+
+    /*
+     * Set frame buffer mapping
+     */
+    (*pScreen->ModifyPixmapHeader) (fbGetScreenPixmap (pScreen),
+				    pScreen->width,
+				    pScreen->height,
+				    screen->fb.depth,
+				    screen->fb.bitsPerPixel,
+				    screen->fb.byteStride,
+				    screen->fb.frameBuffer);
+
+    if (wasEnabled)
+	KdEnableScreen (pScreen);
+
+    return TRUE;
+
+bail4:
+    fbdevUnmapFramebuffer (screen);
+    *scrpriv = oldscr;
+    (void) fbdevMapFramebuffer (screen);
+    pScreen->width = oldwidth;
+    pScreen->height = oldheight;
+    pScreen->mmWidth = oldmmwidth;
+    pScreen->mmHeight = oldmmheight;
+
+    if (wasEnabled)
+	KdEnableScreen (pScreen);
+    return FALSE;
+}
+
+static Bool
 fbdevRandRGetInfo (ScreenPtr pScreen, Rotation *rotations)
 {
     KdScreenPriv(pScreen);
@@ -563,13 +700,20 @@ static Bool
 fbdevRandRInit (ScreenPtr pScreen)
 {
     rrScrPrivPtr    pScrPriv;
+    KdScreenPriv(pScreen);
+    KdScreenInfo	*screen = pScreenPriv->screen;
 
     if (!RRScreenInit (pScreen))
 	return FALSE;
 
     pScrPriv = rrGetScrPriv(pScreen);
-    pScrPriv->rrGetInfo = fbdevRandRGetInfo;
-    pScrPriv->rrSetConfig = fbdevRandRSetConfig;
+    if (screen->hwRotation) {
+	pScrPriv->rrGetInfo = fbdevRandRGetInfoHW;
+	pScrPriv->rrSetConfig = fbdevRandRSetConfigHW;
+    } else {
+	pScrPriv->rrGetInfo = fbdevRandRGetInfo;
+	pScrPriv->rrSetConfig = fbdevRandRSetConfig;
+    }
     return TRUE;
 }
 #endif

@@ -98,6 +98,7 @@ typedef struct _KdScreenInfo {
     int		subpixel_order;
     Bool        dumb;
     Bool        softCursor;
+    Bool        hwRotation;
     int		mynum;
     DDXPointRec	origin;
     KdFrameBuffer   fb;
