@@ -2,6 +2,7 @@ Source: xorg-server
 Section: gui
 Priority: optional
 Maintainer: Mikhail Gusarov <dottedmag@dottedmag.net>
+Uploaders: Alexander Kerner <lunohod@openinkpot.org>
 XCS-Cross-Host-Build-Depends: debhelper (>= 4.0.0),
  xorg-util-macros (>= 1.13.0-1),
  xorg-fontutil,
